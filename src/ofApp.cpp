@@ -244,6 +244,11 @@ void ofApp::setup()
 {
   ofSetVerticalSync(true);
   ofGetMainLoop()->setEscapeQuitsLoop(false);
+
+  _genPanel.setup("Generators");
+  _modPanel.setup("Modifiers");
+  _memPanel.setup("Memory");
+
   _scene.setup();
 }
 

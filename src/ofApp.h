@@ -82,5 +82,12 @@ public:
   void dragEvent(ofDragInfo dragInfo);
   void gotMessage(ofMessage msg);
 
+  ofxPanel _genPanel;
+  ofxPanel _modPanel;
+  ofxPanel _memPanel;
+  vector<ofxButton> _genButtons;
+  vector<ofxButton> _modButtons;
+  vector<ofxButton> _memButtons;
+
   Scene _scene;
 };
