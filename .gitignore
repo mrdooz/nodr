@@ -1,0 +1,34 @@
+_win32/Debug/*
+_win32/x64/Debug/*
+_win32/Release/*
+_win32/x64/Release/*
+_win32/x64/Public/*
+*.sdf
+*.suo
+*.opensdf
+*.aps
+*.user
+*.mp3
+*.ogg
+*.psess
+*.vsp
+*.ipch
+generated/*
+shaders/out/*
+_win32/My Advisor*
+_win32/My Inspector*
+nsight_profiler.cfg
+meshes/*
+resources.txt
+resources.dat
+imgui.ini
+_win32/Graphics*
+data/*
+_win32/tano*.vspx
+_win32/My*
+*.swp
+*.etl
+dist/*
+obj/Debug/*
+nodr_debug.*
+*.opendb
