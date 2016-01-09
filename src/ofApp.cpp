@@ -7,7 +7,8 @@ static const int HEADING_SIZE = FONT_HEIGHT + 2 * FONT_PADDING;
 static const int RECT_UPPER_ROUNDING = 4;
 static const int RECT_LOWER_ROUNDING = 2;
 static const int INPUT_HEIGHT = 14;
-static const int INPUT_PADDING = 5;
+static const int INPUT_PADDING = 4;
+static const int CONNECTOR_RADIUS = 5;
 static const int MIN_NODE_WIDTH = 100;
 
 //--------------------------------------------------------------
@@ -40,66 +41,192 @@ bool ofKeyControl()
 }
 
 //--------------------------------------------------------------
-void drawStringCentered(const string& str, const ofTrueTypeFont& font, const ofRectangle& rect)
+void drawStringCentered(const string& str,
+    const ofTrueTypeFont& font,
+    const ofRectangle& rect,
+    bool centerHoriz,
+    bool centerVert)
 {
+  // note, the y-coord for strings is the bottom left corner
   ofRectangle r = font.getStringBoundingBox(str, rect.x, rect.y);
-  font.drawString(str, rect.x + (rect.width - r.width) / 2, rect.y + r.height + FONT_PADDING);
+  int dx = centerHoriz ? (rect.width - r.width) / 2 : 0;
+  int dy = centerVert ? (rect.height - r.height) / 2 : 0;
+  font.drawString(str, rect.getLeft() + dx, rect.getBottom() - dy);
+}
+
+//--------------------------------------------------------------
+void drawOutlineRect(
+    const ofRectangle& rect, const ofColor& fill, int upperRounding, int lowerRounding)
+{
+  ofSetColor(fill);
+  ofDrawRectRounded(rect, upperRounding, upperRounding, lowerRounding, lowerRounding);
+  ofNoFill();
+  ofSetColor(30);
+  ofDrawRectRounded(rect, upperRounding, upperRounding, lowerRounding, lowerRounding);
+  ofFill();
+}
+
+//--------------------------------------------------------------
+void drawOutlineCircle(const ofPoint& pt, float radius, const ofColor& fill)
+{
+  ofSetColor(fill);
+  ofDrawCircle(pt, radius);
+  ofNoFill();
+  ofSetColor(30);
+  ofDrawCircle(pt, radius);
+  ofFill();
+}
+
+//--------------------------------------------------------------
+Node::Node(const NodeTemplate& t, const ofPoint& pt, Scene* scene) : name(t.name), scene(scene)
+{
+  bodyRect = t.rect;
+  bodyRect.translate(pt);
+
+  headingRect = bodyRect;
+  float h = 2 * FONT_PADDING + scene->_font.stringHeight(name);
+  headingRect.setHeight(h);
+  headingRect.translateY(-h);
+
+  int y = bodyRect.y + INPUT_PADDING;
+  for (size_t i = 0; i < t.inputs.size(); ++i)
+  {
+    const NodeTemplate::NodeParam& input = t.inputs[i];
+    inputs.push_back(NodeConnector(input.name,
+        input.type,
+        NodeConnector::Dir::Input,
+        ofPoint(bodyRect.x + INPUT_PADDING + CONNECTOR_RADIUS, y + INPUT_HEIGHT / 2),
+        this));
+    y += INPUT_HEIGHT + INPUT_PADDING;
+  }
+
+  for (const NodeTemplate::NodeParam& param : t.params)
+  {
+    params.push_back(Node::Param(param.name, param.type));
+  }
+
+  output = NodeConnector("out",
+      t.output,
+      NodeConnector::Dir::Output,
+      ofPoint(bodyRect.getRight() - INPUT_PADDING - CONNECTOR_RADIUS,
+                             bodyRect.y + INPUT_PADDING + INPUT_HEIGHT / 2),
+      this);
+}
+
+//--------------------------------------------------------------
+void Node::translate(const ofPoint& delta)
+{
+  bodyRect.translate(delta);
+  headingRect.translate(delta);
+
+  for (auto& input : inputs)
+    input.pt += delta;
+
+  output.pt += delta;
 }
 
 //--------------------------------------------------------------
 void Node::draw()
 {
-  int u = RECT_UPPER_ROUNDING;
-  int l = RECT_LOWER_ROUNDING;
-
   // Draw body
-  ofSetColor(selected ? 150 : 95);
-  ofDrawRectRounded(rect, u, u, l, l);
-
-  ofSetColor(78);
-  ofDrawRectRounded(ofRectangle(rect.x, rect.y, rect.width, HEADING_SIZE), u, u, l, l);
-  ofNoFill();
-  ofSetColor(30);
-  ofDrawRectRounded(ofRectangle(rect.x, rect.y, rect.width, HEADING_SIZE), u, u, l, l);
-  ofDrawRectRounded(rect, u, u, l, l);
-  ofFill();
+  drawOutlineRect(bodyRect, 95, 0, RECT_LOWER_ROUNDING);
 
   // Draw heading
+  drawOutlineRect(headingRect, 78, RECT_UPPER_ROUNDING, 0);
   ofSetColor(0);
-  drawStringCentered(name, *font, rect);
+  drawStringCentered(name, scene->_font, headingRect, true, true);
+
+  int circleInset = CONNECTOR_RADIUS * 2 + 2 * INPUT_PADDING;
 
   // Draw inputs
-  int y = HEADING_SIZE + FONT_HEIGHT + INPUT_PADDING + rect.y;
+  int y = bodyRect.y + INPUT_PADDING;
   for (const NodeConnector& input : inputs)
   {
+    // each input gets its own rect, and we draw the text centered inside that
+    ofRectangle rect(ofPoint(bodyRect.x + circleInset, y), bodyRect.getWidth(), INPUT_HEIGHT);
     ofSetColor(0);
-    font->drawString(input.name, rect.x + INPUT_PADDING, y);
-    y += INPUT_PADDING + INPUT_HEIGHT;
+    drawStringCentered(input.name, scene->_font, rect, false, true);
 
-    ofSetColor(95);
-    ofDrawRectRounded(ofRectangle(rect.x - 10, y, 10, 10), 3, 0, 0, 3);
+    ofPoint pt(bodyRect.x + INPUT_PADDING + CONNECTOR_RADIUS, y + INPUT_HEIGHT / 2);
+    drawOutlineCircle(
+        pt, CONNECTOR_RADIUS, input.cons.empty() ? ofColor(140) : ofColor(80, 200, 80));
 
+    y += INPUT_HEIGHT + INPUT_PADDING;
+  }
+
+  // Draw output
+  if (output.type != ParamType::Void)
+  {
+    int y = bodyRect.y + INPUT_PADDING;
+    ofRectangle strRect = scene->_font.getStringBoundingBox(output.name, 0, 0);
+
+    // right aligned..
+    int dy = (INPUT_HEIGHT - strRect.height) / 2;
+    int strX = bodyRect.getRight() - circleInset - strRect.getWidth();
+    scene->_font.drawString(output.name, strX, y + INPUT_HEIGHT - dy);
+
+    ofPoint pt(bodyRect.getRight() - INPUT_PADDING - CONNECTOR_RADIUS, y + INPUT_HEIGHT / 2);
+    drawOutlineCircle(
+        pt, CONNECTOR_RADIUS, output.cons.empty() ? ofColor(140) : ofColor(80, 200, 80));
+  }
+
+  if (selected)
+  {
     ofNoFill();
-    ofSetColor(30);
-    ofDrawRectRounded(ofRectangle(rect.x - 10, y, 10, 10), 3, 0, 0, 3);
-    ofFill();
-
     ofSetLineWidth(3);
-    if (input.node)
-    {
-      ofPolyline p;
-      p.quadBezierTo(ofPoint(rect.x, rect.y),
-          ofPoint((rect.x + input.node->rect.x) / 3, (rect.y + input.node->rect.y) / 3),
-          ofPoint(input.node->rect.x, input.node->rect.y));
-
-      p.draw();
-    }
+    ofSetColor(219, 136, 39);
+    ofDrawRectRounded(headingRect.getTopLeft(),
+        bodyRect.getWidth(),
+        headingRect.getHeight() + bodyRect.getHeight(),
+        RECT_UPPER_ROUNDING,
+        RECT_UPPER_ROUNDING,
+        RECT_LOWER_ROUNDING,
+        RECT_LOWER_ROUNDING);
     ofSetLineWidth(1);
+    ofFill();
   }
 }
 
 //--------------------------------------------------------------
-Scene::Scene()
+void Node::drawConnections()
+{
+  ofSetLineWidth(3);
+  ofSetColor(100, 100, 200);
+  for (const NodeConnector* con : output.cons)
+  {
+    ofDrawLine(output.pt, con->pt);
+  }
+
+  ofSetLineWidth(1);
+}
+
+//--------------------------------------------------------------
+bool validConnection(const NodeConnector* a, const NodeConnector* b)
+{
+  if (a == nullptr || b == nullptr)
+    return false;
+
+  if (a == b)
+    return false;
+
+  if (a->parent == b->parent)
+    return false;
+
+  if (a->type != b->type)
+    return false;
+
+  if (a->dir == b->dir)
+    return false;
+
+  const NodeConnector* input = a->dir == NodeConnector::Dir::Input ? a : b;
+  if (!input->cons.empty())
+    return false;
+
+  return true;
+}
+
+//--------------------------------------------------------------
+Scene::Scene(ofxPanel* varPanel) : _varPanel(varPanel)
 {
 }
 
@@ -116,50 +243,11 @@ Scene::~Scene()
 //--------------------------------------------------------------
 bool Scene::setup()
 {
-  _verdana14.load("verdana.ttf", FONT_HEIGHT, true, true);
-  _verdana14.setLineHeight(FONT_HEIGHT);
-  _verdana14.setLetterSpacing(1.037);
+  _font.load("verdana.ttf", FONT_HEIGHT, true, true);
+  _font.setLineHeight(FONT_HEIGHT);
+  _font.setLetterSpacing(1.037);
 
-  // clang-format off
-  _nodeTemplates[NodeType::Create] = NodeTemplate{
-    "Create",
-    {},
-    { {"color", ParamType::Color} },
-    ParamType::Texture
-  };
-
-  _nodeTemplates[NodeType::Modulate] = NodeTemplate{
-    "Modulate",
-    {
-      { "a", ParamType::Texture },
-      { "b", ParamType::Texture },
-    },
-    { 
-      { "factor_a", ParamType::Float },
-      { "factor_b", ParamType::Float }
-    },
-    ParamType::Texture
-  };
-
-  _nodeTemplates[NodeType::Load] = NodeTemplate{
-    "Load",
-    {},
-    { { "source", ParamType::Texture } },
-    ParamType::Texture
-  };
-
-  _nodeTemplates[NodeType::Store] = NodeTemplate{
-    "Store",
-    { {"sink", ParamType::Texture} },
-    {},
-    ParamType::Void
-  };
-  // clang-format on
-
-  for (auto& kv : _nodeTemplates)
-  {
-    kv.second.rect = calcTemplateRectangle(kv.second);
-  }
+  initNodes();
 
   return true;
 }
@@ -171,47 +259,40 @@ void Scene::draw()
   {
     node->draw();
   }
-}
-
-//--------------------------------------------------------------
-bool Scene::tryAddNode(int x, int y)
-{
-  const NodeTemplate& t = _nodeTemplates[_createType];
-
-  ofRectangle cand = t.rect;
-  cand.translate(x, y);
 
   for (auto& node : _nodes)
   {
-    if (cand.intersects(node->rect))
-    {
-      // candidate overlaps with an existing rectangle, so bail
-      return false;
-    }
+    node->drawConnections();
   }
 
-  // Create the node, and add the inputs
-  Node* node = new Node(t.name, cand, &_verdana14);
-  _nodes.push_back(node);
-
-  for (const NodeTemplate::NodeParam& input : t.inputs)
+  if (_mode == Mode::Connecting)
   {
-    node->inputs.push_back(NodeConnector(input.name, input.type, NodeConnector::Dir::Input));
+    ofSetLineWidth(3);
+    if (_endConnector)
+    {
+      if (validConnection(_startConnector, _endConnector))
+        ofSetColor(100, 200, 100);
+      else
+        ofSetColor(200, 100, 100);
+
+      ofDrawLine(_startConnector->pt, _endConnector->pt);
+    }
+    else
+    {
+      ofSetColor(100, 100, 200);
+      ofDrawLine(_startConnector->pt, ofPoint(ofGetMouseX(), ofGetMouseY()));
+    }
+    ofSetLineWidth(1);
   }
-
-  node->output.type = t.output;
-  node->output.dir = NodeConnector::Dir::Output;
-  node->output.name = "out";
-
-  return true;
 }
 
 //--------------------------------------------------------------
 Node* Scene::nodeAtPoint(const ofPoint& pt)
 {
+  // NB, only select if the point is inside the header
   for (auto& node : _nodes)
   {
-    if (node->rect.inside(pt))
+    if (node->headingRect.inside(pt))
       return node;
   }
 
@@ -231,42 +312,55 @@ void Scene::mouseDragged(int x, int y, int button)
 {
   ofPoint pt(x, y);
 
-  if (_mode == Mode::Default)
+  if (_mode == Mode::Connecting)
+  {
+    _endConnector = connectorAtPoint(pt);
+    return;
+  }
+
+  if (_mode == Mode::DragStart)
   {
     _lastDragPos = _dragStart = pt;
     for (auto& node : _selectedNodes)
-      node->dragStart = node->rect.getPosition();
+      node->dragStart = node->bodyRect.getPosition();
     _mode = Mode::Dragging;
   }
-
-  ofPoint delta = pt - _lastDragPos;
-  for (auto& node : _selectedNodes)
+  else if (_mode == Mode::Dragging)
   {
-    node->rect.translate(delta);
-  }
+    ofPoint delta = pt - _lastDragPos;
+    for (auto& node : _selectedNodes)
+    {
+      node->translate(delta);
+    }
 
-  _lastDragPos = pt;
+    _lastDragPos = pt;
+  }
 }
 
 //--------------------------------------------------------------
 NodeConnector* Scene::connectorAtPoint(const ofPoint& pt)
 {
+  auto& insideConnector = [&](const ofPoint& center) {
+    float dist = center.squareDistance(pt);
+    return dist < CONNECTOR_RADIUS * CONNECTOR_RADIUS;
+  };
+
   for (auto& node : _nodes)
   {
     for (auto& input : node->inputs)
     {
       // skip already connected nodes
-      if (input.node)
-        continue;
+      //if (!input.cons.empty())
+      //  continue;
 
-      if (input.rect.inside(pt))
+      if (insideConnector(input.pt))
       {
         return &input;
       }
     }
 
     // check the output node
-    if (node->output.type != ParamType::Void && node->output.rect.inside(pt))
+    if (node->output.type != ParamType::Void && insideConnector(node->output.pt))
     {
       return &node->output;
     }
@@ -279,26 +373,43 @@ NodeConnector* Scene::connectorAtPoint(const ofPoint& pt)
 void Scene::mousePressed(int x, int y, int button)
 {
   ofPoint pt(x, y);
+
+  if (_mode == Mode::Create)
+  {
+    const NodeTemplate& t = _nodeTemplates[_createType];
+    _nodes.push_back(new Node(t, pt, this));
+    resetState();
+    return;
+  }
+
+  // check if we clicked on any node connectors
+  _startConnector = connectorAtPoint(pt);
+  if (_startConnector)
+  {
+    _endConnector = nullptr;
+    _mode = Mode::Connecting;
+    return;
+  }
+
+  // if nothing was clicked, clear the selection
   auto node = nodeAtPoint(pt);
   if (!node)
   {
     clearSelection();
-
-    // check if we clicked on any node connectors
-    _connector = connectorAtPoint(pt);
-    if (_connector)
-    {
-      _mode = Mode::Connecting;
-    }
     return;
   }
 
-  // clicking on an already selected node is a no-op
+  // if we clicked a node, select it, and toggle speculatively to drag-mode
+  _mode = Mode::DragStart;
+
   if (!node->selected)
   {
     // ctrl allows multi-select
     if (!ofKeyControl())
+    {
       clearSelection();
+      initNodeParameters(node);
+    }
 
     node->selected = true;
     _selectedNodes.push_back(node);
@@ -308,12 +419,34 @@ void Scene::mousePressed(int x, int y, int button)
 //--------------------------------------------------------------
 void Scene::mouseReleased(int x, int y, int button)
 {
-  if (_mode == Mode::Create)
+  if (_mode == Mode::Connecting)
   {
-    tryAddNode(x, y);
+    if (validConnection(_startConnector, _endConnector))
+    {
+      NodeConnector* input;
+      NodeConnector* output;
+      if (_startConnector->dir == NodeConnector::Dir::Input)
+      {
+        input = _startConnector;
+        output = _endConnector;
+      }
+      else
+      {
+        input = _endConnector;
+        output = _startConnector;
+      }
+
+      output->cons.push_back(input);
+      input->cons.push_back(output);
+    }
   }
 
   resetState();
+}
+
+//--------------------------------------------------------------
+void Scene::mouseMoved(int x, int y)
+{
 }
 
 //--------------------------------------------------------------
@@ -329,7 +462,10 @@ void Scene::keyReleased(int key)
     if (_mode == Mode::Dragging)
     {
       for (auto& node : _selectedNodes)
-        node->rect.setPosition(node->dragStart);
+      {
+        node->bodyRect.setPosition(node->dragStart);
+        node->headingRect.setPosition(node->dragStart);
+      }
     }
     clearSelection();
     _mode = Mode::Default;
@@ -352,27 +488,59 @@ void Scene::resetState()
 ofRectangle Scene::calcTemplateRectangle(const NodeTemplate& node)
 {
   int numRows = max(1, (int)node.inputs.size());
-  int h = 2 * FONT_PADDING + FONT_HEIGHT + 2 * INPUT_PADDING + numRows * INPUT_HEIGHT
-          + (numRows - 1) * INPUT_PADDING;
+  int h = 2 * INPUT_PADDING + numRows * INPUT_HEIGHT + (numRows - 1) * INPUT_PADDING;
 
-  int strWidth = (int)ceil(_verdana14.stringWidth(node.name));
+  int strWidth = (int)ceil(_font.stringWidth(node.name));
   for (const NodeTemplate::NodeParam& p : node.inputs)
   {
-    strWidth = max(strWidth, (int)ceil(_verdana14.stringWidth(p.name)));
+    strWidth = max(strWidth, (int)ceil(_font.stringWidth(p.name)));
   }
 
   if (node.output != ParamType::Void)
-    strWidth += (int)ceil(_verdana14.stringWidth("out"));
+    strWidth += (int)ceil(_font.stringWidth("out"));
 
   return ofRectangle(ofPoint(0, 0), max(MIN_NODE_WIDTH, strWidth), h);
+}
+
+//--------------------------------------------------------------
+void Scene::initNodeParameters(Node* node)
+{
+  _varPanel->clear();
+  char buf[256];
+  sprintf(buf, "%s vars", node->name.c_str());
+  _varPanel->setup(buf);
+
+  for (Node::Param& p : node->params)
+  {
+    switch (p.type)
+    {
+      case ParamType::Void: break;
+      case ParamType::Float: _varPanel->add(p.value.fValue); break;
+      case ParamType::Vec2: _varPanel->add(p.value.vValue); break;
+      case ParamType::Color: _varPanel->add(p.value.cValue); break;
+      case ParamType::Texture: break;
+      default: break;
+    }
+  }
 }
 
 //--------------------------------------------------------------
 void ofApp::setupCreateNode(const void* sender)
 {
   NodeType type = _buttonToType[sender];
-  _scene._createType = type;
-  _scene._mode = Mode::Create;
+  _scene->_createType = type;
+  _scene->_mode = Mode::Create;
+}
+
+//--------------------------------------------------------------
+ofApp::ofApp() : _scene(nullptr)
+{
+}
+
+//--------------------------------------------------------------
+ofApp::~ofApp()
+{
+  delete _scene;
 }
 
 //--------------------------------------------------------------
@@ -380,6 +548,8 @@ void ofApp::setup()
 {
   ofSetVerticalSync(true);
   ofGetMainLoop()->setEscapeQuitsLoop(false);
+
+  _scene = new Scene(&_varPanel);
 
   auto& fnAddButton = [this](
       ofxPanel* panel, vector<ofxButton*>* buttons, const string& name, NodeType type) {
@@ -394,20 +564,29 @@ void ofApp::setup()
   _genPanel.setup("Generators");
 
   fnAddButton(&_genPanel, &_genButtons, "Create", NodeType::Create);
+  fnAddButton(&_genPanel, &_genButtons, "LinearGradient", NodeType::LinearGradient);
+  fnAddButton(&_genPanel, &_genButtons, "RadialGradient", NodeType::RadialGradient);
+  fnAddButton(&_genPanel, &_genButtons, "Sinus", NodeType::Sinus);
 
   _modPanel.setup("Modifiers");
   fnAddButton(&_modPanel, &_modButtons, "Modulate", NodeType::Modulate);
+  fnAddButton(&_modPanel, &_modButtons, "RotateScale", NodeType::RotateScale);
+  fnAddButton(&_modPanel, &_modButtons, "Distort", NodeType::Distort);
+  fnAddButton(&_modPanel, &_modButtons, "ColorGradient", NodeType::ColorGradient);
 
   _memPanel.setup("Memory");
   fnAddButton(&_memPanel, &_memButtons, "Load", NodeType::Load);
   fnAddButton(&_memPanel, &_memButtons, "Store", NodeType::Store);
 
+  _varPanel.setup("Vars");
+
   _mainPanel.setup("TextureGen");
   _mainPanel.add(&_genPanel);
   _mainPanel.add(&_modPanel);
   _mainPanel.add(&_memPanel);
+  _mainPanel.add(&_varPanel);
 
-  _scene.setup();
+  _scene->setup();
 }
 
 //--------------------------------------------------------------
@@ -427,7 +606,7 @@ void ofApp::draw()
 
   _mainPanel.draw();
 
-  _scene.draw();
+  _scene->draw();
 }
 
 //--------------------------------------------------------------
@@ -442,7 +621,7 @@ void ofApp::keyPressed(int key)
   if (key == OF_KEY_ALT)
     g_modState |= KeyModAlt;
 
-  _scene.keyPressed(key);
+  _scene->keyPressed(key);
 }
 
 //--------------------------------------------------------------
@@ -457,30 +636,31 @@ void ofApp::keyReleased(int key)
   if (key == OF_KEY_ALT)
     g_modState &= ~KeyModAlt;
 
-  _scene.keyReleased(key);
+  _scene->keyReleased(key);
 }
 
 //--------------------------------------------------------------
 void ofApp::mouseMoved(int x, int y)
 {
+  _scene->mouseMoved(x, y);
 }
 
 //--------------------------------------------------------------
 void ofApp::mouseDragged(int x, int y, int button)
 {
-  _scene.mouseDragged(x, y, button);
+  _scene->mouseDragged(x, y, button);
 }
 
 //--------------------------------------------------------------
 void ofApp::mousePressed(int x, int y, int button)
 {
-  _scene.mousePressed(x, y, button);
+  _scene->mousePressed(x, y, button);
 }
 
 //--------------------------------------------------------------
 void ofApp::mouseReleased(int x, int y, int button)
 {
-  _scene.mouseReleased(x, y, button);
+  _scene->mouseReleased(x, y, button);
 }
 
 //--------------------------------------------------------------
