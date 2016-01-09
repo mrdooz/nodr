@@ -1,5 +1,6 @@
 #include "ofApp.h"
 
+//--------------------------------------------------------------
 static const int FONT_HEIGHT = 12;
 static const int FONT_PADDING = 4;
 static const int HEADING_SIZE = FONT_HEIGHT + 2 * FONT_PADDING;
@@ -7,7 +8,10 @@ static const int RECT_UPPER_ROUNDING = 4;
 static const int RECT_LOWER_ROUNDING = 2;
 static const int INPUT_HEIGHT = 14;
 static const int INPUT_PADDING = 5;
+static const int MIN_NODE_WIDTH = 100;
 
+//--------------------------------------------------------------
+// NB: The GLUT modifiers always returned 0, so I had to roll my own *shrug*
 enum KeyMods
 {
   KeyModShift = 0x1,
@@ -66,7 +70,7 @@ void Node::draw()
 
   // Draw inputs
   int y = HEADING_SIZE + FONT_HEIGHT + INPUT_PADDING + rect.y;
-  for (const NodeInput& input : inputs)
+  for (const NodeConnector& input : inputs)
   {
     ofSetColor(0);
     font->drawString(input.name, rect.x + INPUT_PADDING, y);
@@ -95,11 +99,68 @@ void Node::draw()
 }
 
 //--------------------------------------------------------------
+Scene::Scene()
+{
+}
+
+//--------------------------------------------------------------
+Scene::~Scene()
+{
+  for (Node* node : _nodes)
+  {
+    delete node;
+  }
+  _nodes.clear();
+}
+
+//--------------------------------------------------------------
 bool Scene::setup()
 {
   _verdana14.load("verdana.ttf", FONT_HEIGHT, true, true);
   _verdana14.setLineHeight(FONT_HEIGHT);
   _verdana14.setLetterSpacing(1.037);
+
+  // clang-format off
+  _nodeTemplates[NodeType::Create] = NodeTemplate{
+    "Create",
+    {},
+    { {"color", ParamType::Color} },
+    ParamType::Texture
+  };
+
+  _nodeTemplates[NodeType::Modulate] = NodeTemplate{
+    "Modulate",
+    {
+      { "a", ParamType::Texture },
+      { "b", ParamType::Texture },
+    },
+    { 
+      { "factor_a", ParamType::Float },
+      { "factor_b", ParamType::Float }
+    },
+    ParamType::Texture
+  };
+
+  _nodeTemplates[NodeType::Load] = NodeTemplate{
+    "Load",
+    {},
+    { { "source", ParamType::Texture } },
+    ParamType::Texture
+  };
+
+  _nodeTemplates[NodeType::Store] = NodeTemplate{
+    "Store",
+    { {"sink", ParamType::Texture} },
+    {},
+    ParamType::Void
+  };
+  // clang-format on
+
+  for (auto& kv : _nodeTemplates)
+  {
+    kv.second.rect = calcTemplateRectangle(kv.second);
+  }
+
   return true;
 }
 
@@ -115,11 +176,11 @@ void Scene::draw()
 //--------------------------------------------------------------
 bool Scene::tryAddNode(int x, int y)
 {
-  // check for overlap
-  int w = 100;
-  int h = 100;
+  const NodeTemplate& t = _nodeTemplates[_createType];
 
-  ofRectangle cand(x, y, w, h);
+  ofRectangle cand = t.rect;
+  cand.translate(x, y);
+
   for (auto& node : _nodes)
   {
     if (cand.intersects(node->rect))
@@ -129,25 +190,28 @@ bool Scene::tryAddNode(int x, int y)
     }
   }
 
-  auto node = make_shared<Node>("hello", cand, &_verdana14);
-  node->inputs.push_back(NodeInput("a"));
-  node->inputs.push_back(NodeInput("b"));
+  // Create the node, and add the inputs
+  Node* node = new Node(t.name, cand, &_verdana14);
   _nodes.push_back(node);
 
-  if (_nodes.size() == 2)
+  for (const NodeTemplate::NodeParam& input : t.inputs)
   {
-    _nodes[0]->inputs[0].node = node;
+    node->inputs.push_back(NodeConnector(input.name, input.type, NodeConnector::Dir::Input));
   }
+
+  node->output.type = t.output;
+  node->output.dir = NodeConnector::Dir::Output;
+  node->output.name = "out";
 
   return true;
 }
 
 //--------------------------------------------------------------
-shared_ptr<Node> Scene::nodeAtPoint(int x, int y)
+Node* Scene::nodeAtPoint(const ofPoint& pt)
 {
   for (auto& node : _nodes)
   {
-    if (node->rect.inside(x, y))
+    if (node->rect.inside(pt))
       return node;
   }
 
@@ -185,12 +249,47 @@ void Scene::mouseDragged(int x, int y, int button)
 }
 
 //--------------------------------------------------------------
+NodeConnector* Scene::connectorAtPoint(const ofPoint& pt)
+{
+  for (auto& node : _nodes)
+  {
+    for (auto& input : node->inputs)
+    {
+      // skip already connected nodes
+      if (input.node)
+        continue;
+
+      if (input.rect.inside(pt))
+      {
+        return &input;
+      }
+    }
+
+    // check the output node
+    if (node->output.type != ParamType::Void && node->output.rect.inside(pt))
+    {
+      return &node->output;
+    }
+  }
+
+  return nullptr;
+}
+
+//--------------------------------------------------------------
 void Scene::mousePressed(int x, int y, int button)
 {
-  auto node = nodeAtPoint(x, y);
+  ofPoint pt(x, y);
+  auto node = nodeAtPoint(pt);
   if (!node)
   {
     clearSelection();
+
+    // check if we clicked on any node connectors
+    _connector = connectorAtPoint(pt);
+    if (_connector)
+    {
+      _mode = Mode::Connecting;
+    }
     return;
   }
 
@@ -209,14 +308,12 @@ void Scene::mousePressed(int x, int y, int button)
 //--------------------------------------------------------------
 void Scene::mouseReleased(int x, int y, int button)
 {
-  if (_mode == Mode::Default)
+  if (_mode == Mode::Create)
   {
     tryAddNode(x, y);
   }
-  else
-  {
-    _mode = Mode::Default;
-  }
+
+  resetState();
 }
 
 //--------------------------------------------------------------
@@ -240,14 +337,75 @@ void Scene::keyReleased(int key)
 }
 
 //--------------------------------------------------------------
+void Scene::abortAction()
+{
+  // abort current action, reset draggers etc.
+}
+
+//--------------------------------------------------------------
+void Scene::resetState()
+{
+  _mode = Mode::Default;
+}
+
+//--------------------------------------------------------------
+ofRectangle Scene::calcTemplateRectangle(const NodeTemplate& node)
+{
+  int numRows = max(1, (int)node.inputs.size());
+  int h = 2 * FONT_PADDING + FONT_HEIGHT + 2 * INPUT_PADDING + numRows * INPUT_HEIGHT
+          + (numRows - 1) * INPUT_PADDING;
+
+  int strWidth = (int)ceil(_verdana14.stringWidth(node.name));
+  for (const NodeTemplate::NodeParam& p : node.inputs)
+  {
+    strWidth = max(strWidth, (int)ceil(_verdana14.stringWidth(p.name)));
+  }
+
+  if (node.output != ParamType::Void)
+    strWidth += (int)ceil(_verdana14.stringWidth("out"));
+
+  return ofRectangle(ofPoint(0, 0), max(MIN_NODE_WIDTH, strWidth), h);
+}
+
+//--------------------------------------------------------------
+void ofApp::setupCreateNode(const void* sender)
+{
+  NodeType type = _buttonToType[sender];
+  _scene._createType = type;
+  _scene._mode = Mode::Create;
+}
+
+//--------------------------------------------------------------
 void ofApp::setup()
 {
   ofSetVerticalSync(true);
   ofGetMainLoop()->setEscapeQuitsLoop(false);
 
+  auto& fnAddButton = [this](
+      ofxPanel* panel, vector<ofxButton*>* buttons, const string& name, NodeType type) {
+    ofxButton* b = new ofxButton();
+    b->setup(name);
+    b->addListener(this, &ofApp::setupCreateNode);
+    buttons->push_back(b);
+    panel->add(b);
+    _buttonToType[b] = type;
+  };
+
   _genPanel.setup("Generators");
+
+  fnAddButton(&_genPanel, &_genButtons, "Create", NodeType::Create);
+
   _modPanel.setup("Modifiers");
+  fnAddButton(&_modPanel, &_modButtons, "Modulate", NodeType::Modulate);
+
   _memPanel.setup("Memory");
+  fnAddButton(&_memPanel, &_memButtons, "Load", NodeType::Load);
+  fnAddButton(&_memPanel, &_memButtons, "Store", NodeType::Store);
+
+  _mainPanel.setup("TextureGen");
+  _mainPanel.add(&_genPanel);
+  _mainPanel.add(&_modPanel);
+  _mainPanel.add(&_memPanel);
 
   _scene.setup();
 }
@@ -266,6 +424,9 @@ void ofApp::update()
 void ofApp::draw()
 {
   ofBackgroundGradient(ofColor::white, ofColor::gray);
+
+  _mainPanel.draw();
+
   _scene.draw();
 }
 
