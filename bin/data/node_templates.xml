@@ -1,0 +1,104 @@
+<NodeTemplates>
+    <Category name="Generators">
+        <NodeTemplate name="Create">
+            <Params>
+                <Param name="color" type="color"/>
+            </Params>
+            <Output type="texture"/>
+        </NodeTemplate>
+
+        <NodeTemplate name="RadialGradient">
+            <Params>
+                <Param name="center" type="vec2"/>
+                <Param name="power" type="float"/>
+            </Params>
+            <Output type="texture"/>
+        </NodeTemplate>
+
+        <NodeTemplate name="LinearGradient">
+            <Params>
+                <Param name="pt0" type="vec2"/>
+                <Param name="pt1" type="vec2"/>
+                <Param name="power" type="float"/>
+            </Params>
+            <Output type="texture"/>
+        </NodeTemplate>
+
+        <NodeTemplate name="Sinus">
+            <Params>
+                <Param name="freq" type="float"/>
+                <Param name="amp" type="float"/>
+                <Param name="power" type="float"/>
+            </Params>
+            <Output type="texture"/>
+        </NodeTemplate>
+
+    </Category>
+    <Category name="Modifers">
+
+        <NodeTemplate name="Modulate">
+            <Inputs>
+                <Input name="a" type="texture"/>
+                <Input name="b" type="texture"/>
+            </Inputs>
+            <Params>
+                <Param name="factor_a" type="float"/>
+                <Param name="factor_b" type="float"/>
+            </Params>
+            <Output type="texture"/>
+        </NodeTemplate>
+
+        <NodeTemplate name="RotateScale">
+            <Inputs>
+                <Input name="a" type="texture"/>
+            </Inputs>
+            <Params>
+                <Param name="angle" type="float"/>
+                <Param name="scale" type="vec2"/>
+            </Params>
+            <Output type="texture"/>
+        </NodeTemplate>
+
+        <NodeTemplate name="Distort">
+            <Inputs>
+                <Input name="a" type="texture"/>
+                <Input name="b" type="texture"/>
+                <Input name="c" type="texture"/>
+            </Inputs>
+            <Params>
+                <Param name="scale" type="float"/>
+            </Params>
+            <Output type="texture"/>
+        </NodeTemplate>
+
+        <NodeTemplate name="ColorGradient">
+            <Inputs>
+                <Input name="a" type="texture"/>
+            </Inputs>
+            <Params>
+                <Param name="col_a" type="color"/>
+                <Param name="col_b" type="color"/>
+            </Params>
+            <Output type="texture"/>
+        </NodeTemplate>
+
+    </Category>
+    <Category name="Memory">
+        <NodeTemplate name="Load">
+            <Params>
+                <Param name="source" type="texture"/>
+            </Params>
+            <Output type="texture"/>
+        </NodeTemplate>
+
+        <NodeTemplate name="Store">
+            <Inputs>
+                <Input name="sink" type="texture"/>
+            </Inputs>
+            <Params>
+                <Param name="source" type="texture"/>
+            </Params>
+        </NodeTemplate>
+    </Category>
+
+</NodeTemplates>

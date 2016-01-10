@@ -1,4 +1,5 @@
 #include "ofApp.h"
+#include <ofxXmlSettings.h>
 
 //--------------------------------------------------------------
 static const int FONT_HEIGHT = 12;
@@ -10,6 +11,8 @@ static const int INPUT_HEIGHT = 14;
 static const int INPUT_PADDING = 4;
 static const int CONNECTOR_RADIUS = 5;
 static const int MIN_NODE_WIDTH = 100;
+
+static ofApp* g_App;
 
 //--------------------------------------------------------------
 // NB: The GLUT modifiers always returned 0, so I had to roll my own *shrug*
@@ -41,7 +44,25 @@ bool ofKeyControl()
 }
 
 //--------------------------------------------------------------
-void drawStringCentered(const string& str,
+static ParamType stringToParamType(const string& str)
+{
+  if (str == "float")
+    return ParamType::Float;
+
+  if (str == "color")
+    return ParamType::Color;
+
+  if (str == "texture")
+    return ParamType::Texture;
+
+  if (str == "vec2")
+    return ParamType::Vec2;
+
+  return ParamType::Void;
+}
+
+//--------------------------------------------------------------
+static void drawStringCentered(const string& str,
     const ofTrueTypeFont& font,
     const ofRectangle& rect,
     bool centerHoriz,
@@ -55,7 +76,7 @@ void drawStringCentered(const string& str,
 }
 
 //--------------------------------------------------------------
-void drawOutlineRect(
+static void drawOutlineRect(
     const ofRectangle& rect, const ofColor& fill, int upperRounding, int lowerRounding)
 {
   ofSetColor(fill);
@@ -67,7 +88,7 @@ void drawOutlineRect(
 }
 
 //--------------------------------------------------------------
-void drawOutlineCircle(const ofPoint& pt, float radius, const ofColor& fill)
+static void drawOutlineCircle(const ofPoint& pt, float radius, const ofColor& fill)
 {
   ofSetColor(fill);
   ofDrawCircle(pt, radius);
@@ -78,13 +99,31 @@ void drawOutlineCircle(const ofPoint& pt, float radius, const ofColor& fill)
 }
 
 //--------------------------------------------------------------
-Node::Node(const NodeTemplate& t, const ofPoint& pt, Scene* scene) : name(t.name), scene(scene)
+void NodeTemplate::calcTemplateRectangle(ofTrueTypeFont& font)
+{
+  int numRows = max(1, (int)inputs.size());
+  int h = 2 * INPUT_PADDING + numRows * INPUT_HEIGHT + (numRows - 1) * INPUT_PADDING;
+
+  int strWidth = (int)ceil(font.stringWidth(name));
+  for (const NodeTemplate::NodeParam& p : inputs)
+  {
+    strWidth = max(strWidth, (int)ceil(font.stringWidth(p.name)));
+  }
+
+  if (output != ParamType::Void)
+    strWidth += (int)ceil(font.stringWidth("out"));
+
+  rect = ofRectangle(ofPoint(0, 0), max(MIN_NODE_WIDTH, strWidth), h);
+}
+
+//--------------------------------------------------------------
+Node::Node(const NodeTemplate& t, const ofPoint& pt) : name(t.name)
 {
   bodyRect = t.rect;
   bodyRect.translate(pt);
 
   headingRect = bodyRect;
-  float h = 2 * FONT_PADDING + scene->_font.stringHeight(name);
+  float h = 2 * FONT_PADDING + g_App->_font.stringHeight(name);
   headingRect.setHeight(h);
   headingRect.translateY(-h);
 
@@ -134,7 +173,7 @@ void Node::draw()
   // Draw heading
   drawOutlineRect(headingRect, 78, RECT_UPPER_ROUNDING, 0);
   ofSetColor(0);
-  drawStringCentered(name, scene->_font, headingRect, true, true);
+  drawStringCentered(name, g_App->_font, headingRect, true, true);
 
   int circleInset = CONNECTOR_RADIUS * 2 + 2 * INPUT_PADDING;
 
@@ -145,7 +184,7 @@ void Node::draw()
     // each input gets its own rect, and we draw the text centered inside that
     ofRectangle rect(ofPoint(bodyRect.x + circleInset, y), bodyRect.getWidth(), INPUT_HEIGHT);
     ofSetColor(0);
-    drawStringCentered(input.name, scene->_font, rect, false, true);
+    drawStringCentered(input.name, g_App->_font, rect, false, true);
 
     ofPoint pt(bodyRect.x + INPUT_PADDING + CONNECTOR_RADIUS, y + INPUT_HEIGHT / 2);
     drawOutlineCircle(
@@ -158,12 +197,12 @@ void Node::draw()
   if (output.type != ParamType::Void)
   {
     int y = bodyRect.y + INPUT_PADDING;
-    ofRectangle strRect = scene->_font.getStringBoundingBox(output.name, 0, 0);
+    ofRectangle strRect = g_App->_font.getStringBoundingBox(output.name, 0, 0);
 
     // right aligned..
     int dy = (INPUT_HEIGHT - strRect.height) / 2;
     int strX = bodyRect.getRight() - circleInset - strRect.getWidth();
-    scene->_font.drawString(output.name, strX, y + INPUT_HEIGHT - dy);
+    g_App->_font.drawString(output.name, strX, y + INPUT_HEIGHT - dy);
 
     ofPoint pt(bodyRect.getRight() - INPUT_PADDING - CONNECTOR_RADIUS, y + INPUT_HEIGHT / 2);
     drawOutlineCircle(
@@ -226,35 +265,129 @@ bool validConnection(const NodeConnector* a, const NodeConnector* b)
 }
 
 //--------------------------------------------------------------
-Scene::Scene(ofxPanel* varPanel) : _varPanel(varPanel)
+void ofApp::setupCreateNode(const void* sender)
 {
+  string type = _buttonToType[sender];
+  _createType = type;
+  _mode = Mode::Create;
 }
 
 //--------------------------------------------------------------
-Scene::~Scene()
+ofApp::ofApp()
+{
+  g_App = this;
+}
+
+//--------------------------------------------------------------
+ofApp::~ofApp()
 {
   for (Node* node : _nodes)
   {
     delete node;
   }
   _nodes.clear();
+
 }
 
 //--------------------------------------------------------------
-bool Scene::setup()
+void ofApp::setup()
 {
+  ofSetVerticalSync(true);
+  ofGetMainLoop()->setEscapeQuitsLoop(false);
+
   _font.load("verdana.ttf", FONT_HEIGHT, true, true);
   _font.setLineHeight(FONT_HEIGHT);
-  _font.setLetterSpacing(1.037);
+  _font.setLetterSpacing(1.037f);
 
-  initNodes();
+  _mainPanel.setup("TextureGen 0.1");
 
-  return true;
+  auto& fnAddButton = [this](
+      ofxPanel* panel, vector<ofxMinimalButton*>* buttons, const string& name) {
+    ofxMinimalButton* b = new ofxMinimalButton();
+    b->setup(name);
+    b->addListener(this, &ofApp::setupCreateNode);
+    buttons->push_back(b);
+    panel->add(b);
+    _buttonToType[b] = name;
+  };
+
+  ofxXmlSettings s;
+  if (s.loadFile("node_templates.xml"))
+  {
+    s.pushTag("NodeTemplates");
+    int numCategories = s.getNumTags("Category");
+    for (int i = 0; i < numCategories; ++i)
+    {
+      string categoryName = s.getAttribute("Category", "name", "", i);
+      ofxPanel* panel = new ofxPanel();
+      panel->setup(categoryName);
+      _categoryPanels.push_back(panel);
+      _mainPanel.add(panel);
+
+      s.pushTag("Category", i);
+      int numTemplates = s.getNumTags("NodeTemplate");
+      for (int j = 0; j < numTemplates; ++j)
+      {
+        string templateName = s.getAttribute("NodeTemplate", "name", "", j);
+        s.pushTag("NodeTemplate", j);
+
+        fnAddButton(panel, &_categoryButtons, templateName);
+
+        NodeTemplate& t = _nodeTemplates[templateName];
+        t.name = templateName;
+
+        if (s.tagExists("Inputs") && s.pushTag("Inputs"))
+        {
+          int numInputs = s.getNumTags("Input");
+          for (int aa = 0; aa < numInputs; ++aa)
+          {
+            string inputName = s.getAttribute("Input", "name", "", aa);
+            ParamType inputType = stringToParamType(s.getAttribute("Input", "type", "", aa));
+            t.inputs.push_back(NodeTemplate::NodeParam{inputName, inputType});
+          }
+          s.popTag();
+        }
+
+        if (s.tagExists("Inputs") && s.pushTag("Params"))
+        {
+          int numParams = s.getNumTags("Params");
+          for (int aa = 0; aa < numParams; ++aa)
+          {
+            string paramName = s.getAttribute("Param", "name", "", aa);
+            ParamType paramType = stringToParamType(s.getAttribute("Param", "type", "", aa));
+            t.params.push_back(NodeTemplate::NodeParam{ paramName, paramType });
+          }
+          s.popTag();
+        }
+
+        t.output = stringToParamType(s.getAttribute("Output", "type", ""));
+        t.calcTemplateRectangle(_font);
+
+        s.popTag();
+      }
+      s.popTag();
+    }
+    s.popTag();
+  }
 }
 
 //--------------------------------------------------------------
-void Scene::draw()
+void ofApp::exit()
 {
+}
+
+//--------------------------------------------------------------
+void ofApp::update()
+{
+}
+
+//--------------------------------------------------------------
+void ofApp::draw()
+{
+  ofBackgroundGradient(ofColor::white, ofColor::gray);
+
+  _mainPanel.draw();
+
   for (auto& node : _nodes)
   {
     node->draw();
@@ -287,7 +420,72 @@ void Scene::draw()
 }
 
 //--------------------------------------------------------------
-Node* Scene::nodeAtPoint(const ofPoint& pt)
+void ofApp::keyPressed(int key)
+{
+  if (key == OF_KEY_SHIFT)
+    g_modState |= KeyModShift;
+
+  if (key == OF_KEY_CONTROL)
+    g_modState |= KeyModCtrl;
+
+  if (key == OF_KEY_ALT)
+    g_modState |= KeyModAlt;
+}
+
+//--------------------------------------------------------------
+void ofApp::keyReleased(int key)
+{
+  if (key == OF_KEY_SHIFT)
+    g_modState &= ~KeyModShift;
+
+  if (key == OF_KEY_CONTROL)
+    g_modState &= ~KeyModCtrl;
+
+  if (key == OF_KEY_ALT)
+    g_modState &= ~KeyModAlt;
+
+  if (key == OF_KEY_ESC)
+  {
+    if (_mode == Mode::Dragging)
+    {
+      for (auto& node : _selectedNodes)
+      {
+        node->bodyRect.setPosition(node->dragStart);
+        node->headingRect.setPosition(node->dragStart);
+      }
+    }
+    clearSelection();
+    _mode = Mode::Default;
+  }
+}
+
+//--------------------------------------------------------------
+void ofApp::mouseEntered(int x, int y)
+{
+}
+
+//--------------------------------------------------------------
+void ofApp::mouseExited(int x, int y)
+{
+}
+
+//--------------------------------------------------------------
+void ofApp::windowResized(int w, int h)
+{
+}
+
+//--------------------------------------------------------------
+void ofApp::gotMessage(ofMessage msg)
+{
+}
+
+//--------------------------------------------------------------
+void ofApp::dragEvent(ofDragInfo dragInfo)
+{
+}
+
+//--------------------------------------------------------------
+Node* ofApp::nodeAtPoint(const ofPoint& pt)
 {
   // NB, only select if the point is inside the header
   for (auto& node : _nodes)
@@ -300,7 +498,7 @@ Node* Scene::nodeAtPoint(const ofPoint& pt)
 }
 
 //--------------------------------------------------------------
-void Scene::clearSelection()
+void ofApp::clearSelection()
 {
   for (auto& node : _selectedNodes)
     node->selected = false;
@@ -308,7 +506,12 @@ void Scene::clearSelection()
 }
 
 //--------------------------------------------------------------
-void Scene::mouseDragged(int x, int y, int button)
+void ofApp::mouseMoved(int x, int y)
+{
+}
+
+//--------------------------------------------------------------
+void ofApp::mouseDragged(int x, int y, int button)
 {
   ofPoint pt(x, y);
 
@@ -338,7 +541,7 @@ void Scene::mouseDragged(int x, int y, int button)
 }
 
 //--------------------------------------------------------------
-NodeConnector* Scene::connectorAtPoint(const ofPoint& pt)
+NodeConnector* ofApp::connectorAtPoint(const ofPoint& pt)
 {
   auto& insideConnector = [&](const ofPoint& center) {
     float dist = center.squareDistance(pt);
@@ -370,14 +573,14 @@ NodeConnector* Scene::connectorAtPoint(const ofPoint& pt)
 }
 
 //--------------------------------------------------------------
-void Scene::mousePressed(int x, int y, int button)
+void ofApp::mousePressed(int x, int y, int button)
 {
   ofPoint pt(x, y);
 
   if (_mode == Mode::Create)
   {
     const NodeTemplate& t = _nodeTemplates[_createType];
-    _nodes.push_back(new Node(t, pt, this));
+    _nodes.push_back(new Node(t, pt));
     resetState();
     return;
   }
@@ -417,7 +620,7 @@ void Scene::mousePressed(int x, int y, int button)
 }
 
 //--------------------------------------------------------------
-void Scene::mouseReleased(int x, int y, int button)
+void ofApp::mouseReleased(int x, int y, int button)
 {
   if (_mode == Mode::Connecting)
   {
@@ -445,245 +648,35 @@ void Scene::mouseReleased(int x, int y, int button)
 }
 
 //--------------------------------------------------------------
-void Scene::mouseMoved(int x, int y)
-{
-}
-
-//--------------------------------------------------------------
-void Scene::keyPressed(int key)
-{
-}
-
-//--------------------------------------------------------------
-void Scene::keyReleased(int key)
-{
-  if (key == OF_KEY_ESC)
-  {
-    if (_mode == Mode::Dragging)
-    {
-      for (auto& node : _selectedNodes)
-      {
-        node->bodyRect.setPosition(node->dragStart);
-        node->headingRect.setPosition(node->dragStart);
-      }
-    }
-    clearSelection();
-    _mode = Mode::Default;
-  }
-}
-
-//--------------------------------------------------------------
-void Scene::abortAction()
+void ofApp::abortAction()
 {
   // abort current action, reset draggers etc.
 }
 
 //--------------------------------------------------------------
-void Scene::resetState()
+void ofApp::resetState()
 {
   _mode = Mode::Default;
 }
 
 //--------------------------------------------------------------
-ofRectangle Scene::calcTemplateRectangle(const NodeTemplate& node)
+void ofApp::initNodeParameters(Node* node)
 {
-  int numRows = max(1, (int)node.inputs.size());
-  int h = 2 * INPUT_PADDING + numRows * INPUT_HEIGHT + (numRows - 1) * INPUT_PADDING;
-
-  int strWidth = (int)ceil(_font.stringWidth(node.name));
-  for (const NodeTemplate::NodeParam& p : node.inputs)
-  {
-    strWidth = max(strWidth, (int)ceil(_font.stringWidth(p.name)));
-  }
-
-  if (node.output != ParamType::Void)
-    strWidth += (int)ceil(_font.stringWidth("out"));
-
-  return ofRectangle(ofPoint(0, 0), max(MIN_NODE_WIDTH, strWidth), h);
-}
-
-//--------------------------------------------------------------
-void Scene::initNodeParameters(Node* node)
-{
-  _varPanel->clear();
+  _varPanel.clear();
   char buf[256];
   sprintf(buf, "%s vars", node->name.c_str());
-  _varPanel->setup(buf);
+  _varPanel.setup(buf);
 
   for (Node::Param& p : node->params)
   {
     switch (p.type)
     {
-      case ParamType::Void: break;
-      case ParamType::Float: _varPanel->add(p.value.fValue); break;
-      case ParamType::Vec2: _varPanel->add(p.value.vValue); break;
-      case ParamType::Color: _varPanel->add(p.value.cValue); break;
-      case ParamType::Texture: break;
-      default: break;
+    case ParamType::Void: break;
+    case ParamType::Float: _varPanel.add(new ofxFloatSliderPlus(p.value.fValue)); break;
+    case ParamType::Vec2: _varPanel.add(new ofxVec2Slider(p.value.vValue)); break;
+    case ParamType::Color: _varPanel.add(p.value.cValue); break;
+    case ParamType::Texture: break;
+    default: break;
     }
   }
-}
-
-//--------------------------------------------------------------
-void ofApp::setupCreateNode(const void* sender)
-{
-  NodeType type = _buttonToType[sender];
-  _scene->_createType = type;
-  _scene->_mode = Mode::Create;
-}
-
-//--------------------------------------------------------------
-ofApp::ofApp() : _scene(nullptr)
-{
-}
-
-//--------------------------------------------------------------
-ofApp::~ofApp()
-{
-  delete _scene;
-}
-
-//--------------------------------------------------------------
-void ofApp::setup()
-{
-  ofSetVerticalSync(true);
-  ofGetMainLoop()->setEscapeQuitsLoop(false);
-
-  _scene = new Scene(&_varPanel);
-
-  auto& fnAddButton = [this](
-      ofxPanel* panel, vector<ofxButton*>* buttons, const string& name, NodeType type) {
-    ofxButton* b = new ofxButton();
-    b->setup(name);
-    b->addListener(this, &ofApp::setupCreateNode);
-    buttons->push_back(b);
-    panel->add(b);
-    _buttonToType[b] = type;
-  };
-
-  _genPanel.setup("Generators");
-
-  fnAddButton(&_genPanel, &_genButtons, "Create", NodeType::Create);
-  fnAddButton(&_genPanel, &_genButtons, "LinearGradient", NodeType::LinearGradient);
-  fnAddButton(&_genPanel, &_genButtons, "RadialGradient", NodeType::RadialGradient);
-  fnAddButton(&_genPanel, &_genButtons, "Sinus", NodeType::Sinus);
-
-  _modPanel.setup("Modifiers");
-  fnAddButton(&_modPanel, &_modButtons, "Modulate", NodeType::Modulate);
-  fnAddButton(&_modPanel, &_modButtons, "RotateScale", NodeType::RotateScale);
-  fnAddButton(&_modPanel, &_modButtons, "Distort", NodeType::Distort);
-  fnAddButton(&_modPanel, &_modButtons, "ColorGradient", NodeType::ColorGradient);
-
-  _memPanel.setup("Memory");
-  fnAddButton(&_memPanel, &_memButtons, "Load", NodeType::Load);
-  fnAddButton(&_memPanel, &_memButtons, "Store", NodeType::Store);
-
-  _varPanel.setup("Vars");
-
-  _mainPanel.setup("TextureGen");
-  _mainPanel.add(&_genPanel);
-  _mainPanel.add(&_modPanel);
-  _mainPanel.add(&_memPanel);
-  _mainPanel.add(&_varPanel);
-
-  _scene->setup();
-}
-
-//--------------------------------------------------------------
-void ofApp::exit()
-{
-}
-
-//--------------------------------------------------------------
-void ofApp::update()
-{
-}
-
-//--------------------------------------------------------------
-void ofApp::draw()
-{
-  ofBackgroundGradient(ofColor::white, ofColor::gray);
-
-  _mainPanel.draw();
-
-  _scene->draw();
-}
-
-//--------------------------------------------------------------
-void ofApp::keyPressed(int key)
-{
-  if (key == OF_KEY_SHIFT)
-    g_modState |= KeyModShift;
-
-  if (key == OF_KEY_CONTROL)
-    g_modState |= KeyModCtrl;
-
-  if (key == OF_KEY_ALT)
-    g_modState |= KeyModAlt;
-
-  _scene->keyPressed(key);
-}
-
-//--------------------------------------------------------------
-void ofApp::keyReleased(int key)
-{
-  if (key == OF_KEY_SHIFT)
-    g_modState &= ~KeyModShift;
-
-  if (key == OF_KEY_CONTROL)
-    g_modState &= ~KeyModCtrl;
-
-  if (key == OF_KEY_ALT)
-    g_modState &= ~KeyModAlt;
-
-  _scene->keyReleased(key);
-}
-
-//--------------------------------------------------------------
-void ofApp::mouseMoved(int x, int y)
-{
-  _scene->mouseMoved(x, y);
-}
-
-//--------------------------------------------------------------
-void ofApp::mouseDragged(int x, int y, int button)
-{
-  _scene->mouseDragged(x, y, button);
-}
-
-//--------------------------------------------------------------
-void ofApp::mousePressed(int x, int y, int button)
-{
-  _scene->mousePressed(x, y, button);
-}
-
-//--------------------------------------------------------------
-void ofApp::mouseReleased(int x, int y, int button)
-{
-  _scene->mouseReleased(x, y, button);
-}
-
-//--------------------------------------------------------------
-void ofApp::mouseEntered(int x, int y)
-{
-}
-
-//--------------------------------------------------------------
-void ofApp::mouseExited(int x, int y)
-{
-}
-
-//--------------------------------------------------------------
-void ofApp::windowResized(int w, int h)
-{
-}
-
-//--------------------------------------------------------------
-void ofApp::gotMessage(ofMessage msg)
-{
-}
-
-//--------------------------------------------------------------
-void ofApp::dragEvent(ofDragInfo dragInfo)
-{
 }

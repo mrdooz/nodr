@@ -1,23 +1,10 @@
 #pragma once
 
 #include "ofMain.h"
-#include "ofxGui.h"
+#include <ofxGui.h>
+#include <ofxGuiExtended.h>
+#include <ofxGuiPlus.h>
 
-enum class NodeType
-{
-  Create,
-  LinearGradient,
-  RadialGradient,
-  Sinus,
-
-  Modulate,
-  RotateScale,
-  Distort,
-  ColorGradient,
-
-  Load,
-  Store,
-};
 
 enum class ParamType
 {
@@ -36,13 +23,6 @@ struct ParamValue
   string tValue;
 };
 
-enum NodeCategory
-{
-  CategoryGen,
-  CategoryMod,
-  CategoryMem,
-};
-
 // Templates are the descriptions of the node types
 struct NodeTemplate
 {
@@ -51,6 +31,8 @@ struct NodeTemplate
     string name;
     ParamType type;
   };
+
+  void calcTemplateRectangle(ofTrueTypeFont& font);
 
   string name;
   vector<NodeParam> inputs;
@@ -90,7 +72,7 @@ struct NodeConnector
   vector<NodeConnector*> cons;
 };
 
-struct Scene;
+class ofApp;
 
 struct Node
 {
@@ -113,7 +95,7 @@ struct Node
     ParamValue value;
   };
 
-  Node(const NodeTemplate& t, const ofPoint& pt, Scene* scene);
+  Node(const NodeTemplate& t, const ofPoint& pt);
   void draw();
   void drawConnections();
   void translate(const ofPoint& delta);
@@ -127,65 +109,6 @@ struct Node
   vector<NodeConnector> inputs;
   // NB: a node with no output has a void tyype for its connector
   NodeConnector output;
-  Scene* scene;
-};
-
-struct Scene
-{
-  Scene(ofxPanel* varPanel);
-  ~Scene();
-  bool setup();
-  void draw();
-
-  void mouseDragged(int x, int y, int button);
-  void mousePressed(int x, int y, int button);
-  void mouseReleased(int x, int y, int button);
-  void mouseMoved(int x, int y);
-
-  void keyPressed(int key);
-  void keyReleased(int key);
-
-  void clearSelection();
-
-  Node* nodeAtPoint(const ofPoint& pt);
-  void resetState();
-  void abortAction();
-
-  void initNodes();
-
-  void initNodeParameters(Node* node);
-
-  ofRectangle calcTemplateRectangle(const NodeTemplate& node);
-
-  NodeConnector* connectorAtPoint(const ofPoint& pt);
-
-  vector<Node*> _nodes;
-  vector<Node*> _selectedNodes;
-
-  ofTrueTypeFont _font;
-
-  Mode _mode;
-
-  // NB: these could be made into a union, but this seems to require everything to have default
-  // ctors, which I don't really want..
-  struct
-  {
-    ofPoint _dragStart;
-    ofPoint _lastDragPos;
-  };
-  struct
-  {
-    NodeType _createType;
-  };
-  struct
-  {
-    NodeConnector* _startConnector;
-    NodeConnector* _endConnector;
-  };
-
-  ofxPanel* _varPanel;
-
-  unordered_map<NodeType, NodeTemplate> _nodeTemplates;
 };
 
 class ofApp : public ofBaseApp
@@ -213,17 +136,46 @@ public:
 
   void setupCreateNode(const void* sender);
 
-  ofxPanel _genPanel;
-  ofxPanel _modPanel;
-  ofxPanel _memPanel;
-  ofxPanel _varPanel;
+  void clearSelection();
+
+  Node* nodeAtPoint(const ofPoint& pt);
+  void resetState();
+  void abortAction();
+
+  void initNodeParameters(Node* node);
+
+  NodeConnector* connectorAtPoint(const ofPoint& pt);
 
   ofxPanel _mainPanel;
+  vector<ofxPanel*> _categoryPanels;
+  vector<ofxMinimalButton*> _categoryButtons;
+  ofxPanel _varPanel;
 
-  vector<ofxButton*> _genButtons;
-  vector<ofxButton*> _modButtons;
-  vector<ofxButton*> _memButtons;
-  unordered_map<const void*, NodeType> _buttonToType;
+  unordered_map<const void*, string> _buttonToType;
 
-  Scene* _scene = nullptr;
+  unordered_map<string, NodeTemplate> _nodeTemplates;
+
+  vector<Node*> _nodes;
+  vector<Node*> _selectedNodes;
+
+  ofTrueTypeFont _font;
+
+  // NB: these could be made into a union, but this seems to require everything to have default
+  // ctors, which I don't really want..
+  struct
+  {
+    ofPoint _dragStart;
+    ofPoint _lastDragPos;
+  };
+  struct
+  {
+    string _createType;
+  };
+  struct
+  {
+    NodeConnector* _startConnector;
+    NodeConnector* _endConnector;
+  };
+  Mode _mode;
+
 };
