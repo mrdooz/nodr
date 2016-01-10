@@ -1,5 +1,7 @@
 #include "ofApp.h"
 #include <ofxXmlSettings.h>
+#include <math.h>
+#include <commdlg.h>
 
 //--------------------------------------------------------------
 static const int FONT_HEIGHT = 12;
@@ -44,21 +46,36 @@ bool ofKeyControl()
 }
 
 //--------------------------------------------------------------
-static ParamType stringToParamType(const string& str)
+bool showFileDialog(bool openFile, string* filename)
 {
-  if (str == "float")
-    return ParamType::Float;
+  char szFileName[MAX_PATH];
+  ZeroMemory(szFileName, sizeof(szFileName));
 
-  if (str == "color")
-    return ParamType::Color;
+  OPENFILENAMEA ofn;
+  ZeroMemory(&ofn, sizeof(ofn));
 
-  if (str == "texture")
-    return ParamType::Texture;
+  ofn.lStructSize = sizeof(ofn);
+  ofn.hwndOwner = NULL;
+  ofn.lpstrFilter = "Textures (*.xml)\0*.xml\0All Files (*.*)\0*.*\0";
+  ofn.lpstrFile = szFileName;
+  ofn.nMaxFile = MAX_PATH;
+  ofn.Flags = OFN_EXPLORER | OFN_HIDEREADONLY;
+  ofn.lpstrDefExt = "xml";
 
-  if (str == "vec2")
-    return ParamType::Vec2;
+  if (openFile)
+  {
+    ofn.Flags |= OFN_FILEMUSTEXIST;
+    if (!GetOpenFileNameA(&ofn))
+      return false;
+  }
+  else
+  {
+    if (!GetSaveFileNameA(&ofn))
+      return false;
+  }
 
-  return ParamType::Void;
+  *filename = szFileName;
+  return true;
 }
 
 //--------------------------------------------------------------
@@ -150,6 +167,28 @@ Node::Node(const NodeTemplate& t, const ofPoint& pt) : name(t.name)
       ofPoint(bodyRect.getRight() - INPUT_PADDING - CONNECTOR_RADIUS,
                              bodyRect.y + INPUT_PADDING + INPUT_HEIGHT / 2),
       this);
+}
+
+//--------------------------------------------------------------
+NodeConnector* Node::findConnector(const string& str)
+{
+  for (size_t i = 0; i < inputs.size(); ++i)
+  {
+    if (inputs[i].name == str)
+      return &inputs[i];
+  }
+  return nullptr;
+}
+
+//--------------------------------------------------------------
+Node::Param* Node::findParam(const string& str)
+{
+  for (size_t i = 0; i < params.size(); ++i)
+  {
+    if (params[i].name == str)
+      return &params[i];
+  }
+  return nullptr;
 }
 
 //--------------------------------------------------------------
@@ -264,6 +303,288 @@ bool validConnection(const NodeConnector* a, const NodeConnector* b)
   return true;
 }
 
+struct TagCreator
+{
+  template <typename... Tags>
+  void addAttributes()
+  {
+    if (enter)
+      s.pushTag(tag, which);
+  }
+
+  template <typename Name, typename Value, typename... Tags>
+  void addAttributes(Name name, Value value, Tags... tags)
+  {
+    s.addAttribute(tag, name, value, which);
+    addAttributes(tags...);
+  }
+
+  template <typename... Tags>
+  TagCreator(ofxXmlSettings& s, const string& tag, int which, bool enter, Tags... tags)
+      : tag(tag), which(which), s(s), enter(enter)
+  {
+    s.addTag(tag);
+    addAttributes(tags...);
+  }
+
+  ~TagCreator()
+  {
+    if (enter)
+      s.popTag();
+  }
+
+  string tag;
+  int which;
+  bool enter;
+  ofxXmlSettings& s;
+};
+
+#define GEN_NAME2(prefix, line) prefix##line
+#define GEN_NAME(prefix, line) GEN_NAME2(prefix, line)
+#define MAKE_SCOPED(type) type GEN_NAME(ANON, __LINE__)
+#define CREATE_TAG(tag, i, ...) TagCreator GEN_NAME(ANON, __LINE__)(s, tag, i, true, __VA_ARGS__)
+#define CREATE_LOCAL_TAG(tag, i, ...) TagCreator GEN_NAME(ANON, __LINE__)(s, tag, i, false, __VA_ARGS__)
+
+//--------------------------------------------------------------
+static ParamType stringToParamType(const string& str)
+{
+  if (str == "float")
+    return ParamType::Float;
+
+  if (str == "color")
+    return ParamType::Color;
+
+  if (str == "texture")
+    return ParamType::Texture;
+
+  if (str == "vec2")
+    return ParamType::Vec2;
+
+  return ParamType::Void;
+}
+
+//--------------------------------------------------------------
+static string paramTypeToString(ParamType type)
+{
+  switch (type)
+  {
+    case ParamType::Float: return "float";
+    case ParamType::Vec2: return "vec2";
+    case ParamType::Color: return "color";
+    case ParamType::Texture: return "texture";
+    default: return "";
+  }
+}
+
+//--------------------------------------------------------------
+static string paramValueToString(const Node::Param& p)
+{
+  switch (p.type)
+  {
+    case ParamType::Float: return p.value.fValue.toString();
+    case ParamType::Vec2: return p.value.vValue.toString();
+    case ParamType::Color: return p.value.cValue.toString();
+    default: return "";
+  }
+}
+
+//--------------------------------------------------------------
+static void stringToParamValue(const string& str, Node::Param* p)
+{
+  switch (p->type)
+  {
+  case ParamType::Float: p->value.fValue.fromString(str); break;
+  case ParamType::Vec2: p->value.vValue.fromString(str); break;
+  case ParamType::Color: p->value.cValue.fromString(str); break;
+  }
+}
+
+//--------------------------------------------------------------
+Node* ofApp::nodeById(int id)
+{
+  for (Node* node : _nodes)
+  {
+    if (node->id == id)
+      return node;
+  }
+  return nullptr;
+}
+
+//--------------------------------------------------------------
+void ofApp::saveToFile(const string& filename)
+{
+  ofxXmlSettings s(filename);
+  s.clear();
+  {
+    CREATE_TAG("Nodes", 0);
+    {
+      int nodeIdx = 0;
+      for (Node* node : _nodes)
+      {
+        CREATE_TAG("Node", nodeIdx, "name", node->name, "id", node->id);
+
+        // Only need to save top-left pos
+        CREATE_LOCAL_TAG("Pos", -1, "x", node->headingRect.x, "y", node->headingRect.y);
+      
+        {
+          CREATE_TAG("Params", 0);
+          for (size_t i = 0; i < node->params.size(); ++i)
+          {
+            const Node::Param& p = node->params[i];
+            string type = paramTypeToString(p.type);
+            string value = paramValueToString(p);
+            CREATE_LOCAL_TAG("Param", i, "name", p.name, "type", type, "value", value);
+          }
+        }
+
+        nodeIdx++;
+      }
+    }
+  }
+
+  {
+    CREATE_TAG("Connections", 0);
+    int conIdx = 0;
+    for (Node* node : _nodes)
+    {
+      // NB: just the outputs are saved
+      for (NodeConnector* con : node->output.cons)
+      {
+        if (Node* p = con->parent)
+        {
+          CREATE_LOCAL_TAG("Connection", conIdx, "from", node->id, "to_node", p->id, "to_input", con->name);
+          conIdx++;
+        }
+      }
+    }
+  }
+
+  s.saveFile();
+}
+
+template <typename... Attrs>
+void getAttrs(ofxXmlSettings& s, const string& tag, int which, vector<string>* res) {}
+
+template <typename... Attrs>
+void getAttrs(ofxXmlSettings& s, const string& tag, int which, vector<string>* res, const string& attr, Attrs... attrs)
+{
+  res->push_back(s.getAttribute(tag, attr, "", which));
+  getAttrs(s, tag, which, res, attrs...);
+}
+
+//--------------------------------------------------------------
+void ofApp::resetTexture()
+{
+  for (Node* node : _nodes)
+    delete node;
+  _nodes.clear();
+
+  _selectedNodes.clear();
+}
+
+//--------------------------------------------------------------
+void ofApp::loadFromFile(const string& filename)
+{
+  resetTexture();
+
+  int maxNodeId = 0;
+
+  ofxXmlSettings s(filename);
+  if (s.tagExists("Nodes") && s.pushTag("Nodes"))
+  {
+    int numNodes = s.getNumTags("Node");
+    for (int i = 0; i < numNodes; ++i)
+    {
+      string name = s.getAttribute("Node", "name", "", i);
+      int id = atoi(s.getAttribute("Node", "id", "", i).c_str());
+      maxNodeId = max(maxNodeId, id);
+
+      s.pushTag("Node", i);
+
+      float x = (float)atof(s.getAttribute("Pos", "x", "", 0).c_str());
+      float y = (float)atof(s.getAttribute("Pos", "y", "", 0).c_str());
+
+      const NodeTemplate& t = _nodeTemplates[name];
+      Node* node = new Node(t, ofPoint(x, y));
+      node->id = id;
+
+      if (s.tagExists("Params") && s.pushTag("Params"))
+      {
+        int numParams = s.getNumTags("Param");
+        for (int j = 0; j < numParams; ++j)
+        {
+          string name = s.getAttribute("Param", "name", "", j);
+          string value = s.getAttribute("Param", "value", "", j);
+
+          if (Node::Param* param = node->findParam(name))
+          {
+            stringToParamValue(value, param);
+          }
+          else
+          {
+            // error: parameter not found..
+          }
+        }
+        s.popTag();
+      }
+
+      _nodes.push_back(node);
+
+      s.popTag();
+    }
+    s.popTag();
+  }
+
+  if (s.tagExists("Connections") && s.pushTag("Connections"))
+  {
+    int numConnections = s.getNumTags("Connection");
+    for (int i = 0; i < numConnections; ++i)
+    {
+      int fromId = atoi(s.getAttribute("Connection", "from", "", i).c_str());
+      int toId = atoi(s.getAttribute("Connection", "to_node", "", i).c_str());
+      string inputName = s.getAttribute("Connection", "to_input", "", i);
+
+      Node* fromNode = nodeById(fromId);
+      Node* toNode = nodeById(toId);
+      NodeConnector* con = toNode->findConnector(inputName);
+
+      if (fromNode && toNode && con)
+      {
+        fromNode->output.cons.push_back(con);
+        con->cons.push_back(&fromNode->output);
+      }
+    }
+    s.popTag();
+  }
+
+  _nextNodeId = maxNodeId + 1;
+
+}
+
+//--------------------------------------------------------------
+void ofApp::fileMenuCallback(const void* sender)
+{
+  string filename;
+  if (sender == _resetButton)
+  {
+    resetTexture();
+  }
+  else if (sender == _loadButton)
+  {
+    if (showFileDialog(true, &filename))
+    {
+      loadFromFile(filename);
+    }
+  }
+  else if (sender == _saveButton)
+  {
+    if (showFileDialog(false, &filename))
+    {
+      saveToFile(filename);
+    }
+  }
+}
+
 //--------------------------------------------------------------
 void ofApp::setupCreateNode(const void* sender)
 {
@@ -286,29 +607,19 @@ ofApp::~ofApp()
     delete node;
   }
   _nodes.clear();
-
 }
 
 //--------------------------------------------------------------
-void ofApp::setup()
+void ofApp::loadTemplates()
 {
-  ofSetVerticalSync(true);
-  ofGetMainLoop()->setEscapeQuitsLoop(false);
-
-  _font.load("verdana.ttf", FONT_HEIGHT, true, true);
-  _font.setLineHeight(FONT_HEIGHT);
-  _font.setLetterSpacing(1.037f);
-
-  _mainPanel.setup("TextureGen 0.1");
-
   auto& fnAddButton = [this](
-      ofxPanel* panel, vector<ofxMinimalButton*>* buttons, const string& name) {
+    ofxPanel* panel, vector<ofxMinimalButton*>* buttons, const string& type) {
     ofxMinimalButton* b = new ofxMinimalButton();
-    b->setup(name);
+    b->setup(type);
     b->addListener(this, &ofApp::setupCreateNode);
     buttons->push_back(b);
     panel->add(b);
-    _buttonToType[b] = name;
+    _buttonToType[b] = type;
   };
 
   ofxXmlSettings s;
@@ -343,14 +654,14 @@ void ofApp::setup()
           {
             string inputName = s.getAttribute("Input", "name", "", aa);
             ParamType inputType = stringToParamType(s.getAttribute("Input", "type", "", aa));
-            t.inputs.push_back(NodeTemplate::NodeParam{inputName, inputType});
+            t.inputs.push_back(NodeTemplate::NodeParam{ inputName, inputType });
           }
           s.popTag();
         }
 
-        if (s.tagExists("Inputs") && s.pushTag("Params"))
+        if (s.tagExists("Params") && s.pushTag("Params"))
         {
-          int numParams = s.getNumTags("Params");
+          int numParams = s.getNumTags("Param");
           for (int aa = 0; aa < numParams; ++aa)
           {
             string paramName = s.getAttribute("Param", "name", "", aa);
@@ -369,6 +680,37 @@ void ofApp::setup()
     }
     s.popTag();
   }
+
+}
+
+//--------------------------------------------------------------
+void ofApp::setup()
+{
+  ofSetVerticalSync(true);
+  ofGetMainLoop()->setEscapeQuitsLoop(false);
+
+  _font.load("verdana.ttf", FONT_HEIGHT, true, true);
+  _font.setLineHeight(FONT_HEIGHT);
+  _font.setLetterSpacing(1.037f);
+
+  _mainPanel.setup("TextureGen 0.1");
+
+  _resetButton = new ofxMinimalButton("Reset");
+  _resetButton->addListener(this, &ofApp::fileMenuCallback);
+
+  _loadButton = new ofxMinimalButton("Load");
+  _loadButton->addListener(this, &ofApp::fileMenuCallback);
+
+  _saveButton = new ofxMinimalButton("Save");
+  _saveButton->addListener(this, &ofApp::fileMenuCallback);
+
+  _mainPanel.add(_resetButton);
+  _mainPanel.add(_loadButton);
+  _mainPanel.add(_saveButton);
+
+  loadTemplates();
+
+  _mainPanel.add(&_varPanel);
 }
 
 //--------------------------------------------------------------
@@ -580,7 +922,9 @@ void ofApp::mousePressed(int x, int y, int button)
   if (_mode == Mode::Create)
   {
     const NodeTemplate& t = _nodeTemplates[_createType];
-    _nodes.push_back(new Node(t, pt));
+    Node* node = new Node(t, pt);
+    node->id = _nextNodeId++;
+    _nodes.push_back(node);
     resetState();
     return;
   }
@@ -672,8 +1016,8 @@ void ofApp::initNodeParameters(Node* node)
     switch (p.type)
     {
     case ParamType::Void: break;
-    case ParamType::Float: _varPanel.add(new ofxFloatSliderPlus(p.value.fValue)); break;
-    case ParamType::Vec2: _varPanel.add(new ofxVec2Slider(p.value.vValue)); break;
+    case ParamType::Float: _varPanel.add(p.value.fValue); break;
+    case ParamType::Vec2: _varPanel.add(p.value.vValue); break;
     case ParamType::Color: _varPanel.add(p.value.cValue); break;
     case ParamType::Texture: break;
     default: break;

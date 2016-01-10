@@ -5,7 +5,6 @@
 #include <ofxGuiExtended.h>
 #include <ofxGuiPlus.h>
 
-
 enum class ParamType
 {
   Void,
@@ -99,6 +98,8 @@ struct Node
   void draw();
   void drawConnections();
   void translate(const ofPoint& delta);
+  Param* findParam(const string& str);
+  NodeConnector* findConnector(const string& str);
 
   string name;
   bool selected = false;
@@ -107,8 +108,9 @@ struct Node
   ofRectangle headingRect;
   vector<Param> params;
   vector<NodeConnector> inputs;
-  // NB: a node with no output has a void tyype for its connector
+  // NB: a node with no output has a void type for its connector
   NodeConnector output;
+  int id;
 };
 
 class ofApp : public ofBaseApp
@@ -135,6 +137,7 @@ public:
   void gotMessage(ofMessage msg);
 
   void setupCreateNode(const void* sender);
+  void fileMenuCallback(const void* sender);
 
   void clearSelection();
 
@@ -142,9 +145,16 @@ public:
   void resetState();
   void abortAction();
 
+  void saveToFile(const string& filename);
+  void loadFromFile(const string& filename);
+  void loadTemplates();
+
   void initNodeParameters(Node* node);
 
+  void resetTexture();
+
   NodeConnector* connectorAtPoint(const ofPoint& pt);
+  Node* nodeById(int id);
 
   ofxPanel _mainPanel;
   vector<ofxPanel*> _categoryPanels;
@@ -176,6 +186,12 @@ public:
     NodeConnector* _startConnector;
     NodeConnector* _endConnector;
   };
+
+  ofxMinimalButton* _loadButton = nullptr;
+  ofxMinimalButton* _saveButton = nullptr;
+  ofxMinimalButton* _resetButton = nullptr;
+
   Mode _mode;
 
+  int _nextNodeId = 1;
 };
