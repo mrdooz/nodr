@@ -94,7 +94,7 @@ struct Node
     ParamValue value;
   };
 
-  Node(const NodeTemplate& t, const ofPoint& pt);
+  Node(const NodeTemplate& t, const ofPoint& pt, int it);
   void draw();
   void drawConnections();
   void translate(const ofPoint& delta);
@@ -153,6 +153,8 @@ public:
 
   void resetTexture();
 
+  void onGenerateCallback(const void* sender);
+
   NodeConnector* connectorAtPoint(const ofPoint& pt);
   Node* nodeById(int id);
 
@@ -190,6 +192,8 @@ public:
   ofxMinimalButton* _loadButton = nullptr;
   ofxMinimalButton* _saveButton = nullptr;
   ofxMinimalButton* _resetButton = nullptr;
+
+  ofxMinimalButton* _generatorButton = nullptr;
 
   Mode _mode;
 

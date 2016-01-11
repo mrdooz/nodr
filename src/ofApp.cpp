@@ -134,7 +134,7 @@ void NodeTemplate::calcTemplateRectangle(ofTrueTypeFont& font)
 }
 
 //--------------------------------------------------------------
-Node::Node(const NodeTemplate& t, const ofPoint& pt) : name(t.name)
+Node::Node(const NodeTemplate& t, const ofPoint& pt, int id) : name(t.name), id(id)
 {
   bodyRect = t.rect;
   bodyRect.translate(pt);
@@ -462,16 +462,6 @@ void ofApp::saveToFile(const string& filename)
   s.saveFile();
 }
 
-template <typename... Attrs>
-void getAttrs(ofxXmlSettings& s, const string& tag, int which, vector<string>* res) {}
-
-template <typename... Attrs>
-void getAttrs(ofxXmlSettings& s, const string& tag, int which, vector<string>* res, const string& attr, Attrs... attrs)
-{
-  res->push_back(s.getAttribute(tag, attr, "", which));
-  getAttrs(s, tag, which, res, attrs...);
-}
-
 //--------------------------------------------------------------
 void ofApp::resetTexture()
 {
@@ -505,8 +495,7 @@ void ofApp::loadFromFile(const string& filename)
       float y = (float)atof(s.getAttribute("Pos", "y", "", 0).c_str());
 
       const NodeTemplate& t = _nodeTemplates[name];
-      Node* node = new Node(t, ofPoint(x, y));
-      node->id = id;
+      Node* node = new Node(t, ofPoint(x, y), id);
 
       if (s.tagExists("Params") && s.pushTag("Params"))
       {
@@ -680,7 +669,94 @@ void ofApp::loadTemplates()
     }
     s.popTag();
   }
+}
 
+void createGraph(const vector<Node*> nodes, vector<Node*>* sortedNodes)
+{
+  // Create a graph from the nodes
+  struct GraphNode
+  {
+    Node* node;
+    vector<Node*> outEdges;
+    vector<Node*> inEdges;
+  };
+
+  vector<GraphNode> graph;
+
+  auto& fnGraphFindNode = [&](Node* node) -> GraphNode* {
+    for (GraphNode& g : graph)
+    {
+      if (g.node == node)
+        return &g;
+    }
+    return nullptr;
+  };
+
+  for (Node* node : nodes)
+  {
+    graph.push_back(GraphNode{ node });
+  }
+
+  for (GraphNode& g : graph)
+  {
+    Node* node = g.node;
+    for (NodeConnector* con : node->output.cons)
+    {
+      g.outEdges.push_back(con->parent);
+      fnGraphFindNode(con->parent)->inEdges.push_back(node);
+    }
+  }
+
+  // do a topological sort, by iteratively grabbing the node with no inputs
+  while (!graph.empty())
+  {
+    Node* node = nullptr;
+    for (auto it = graph.begin(); it != graph.end(); )
+    {
+      if (it->inEdges.empty())
+      {
+        node = it->node;
+        it = graph.erase(it);
+        break;
+      }
+      else
+      {
+        ++it;
+      }
+    }
+
+    if (!node)
+    {
+      // graph has cycles!
+      return;
+    }
+
+    // remove occurences of node from the other node's in-edges
+    for (GraphNode& g : graph)
+    {
+      for (auto it = g.inEdges.begin(); it != g.inEdges.end(); )
+      {
+        if (*it == node)
+        {
+          it = g.inEdges.erase(it);
+        }
+        else
+        {
+          ++it;
+        }
+      }
+    }
+    
+    sortedNodes->push_back(node);
+  }
+
+}
+
+//--------------------------------------------------------------
+void ofApp::onGenerateCallback(const void* sender)
+{
+  vector<Node*> sorted;
+  createGraph(_nodes, &sorted);
 }
 
 //--------------------------------------------------------------
@@ -704,9 +780,13 @@ void ofApp::setup()
   _saveButton = new ofxMinimalButton("Save");
   _saveButton->addListener(this, &ofApp::fileMenuCallback);
 
+  _generatorButton = new ofxMinimalButton("Generate");
+  _generatorButton->addListener(this, &ofApp::onGenerateCallback);
+
   _mainPanel.add(_resetButton);
   _mainPanel.add(_loadButton);
   _mainPanel.add(_saveButton);
+  _mainPanel.add(_generatorButton);
 
   loadTemplates();
 
@@ -922,8 +1002,7 @@ void ofApp::mousePressed(int x, int y, int button)
   if (_mode == Mode::Create)
   {
     const NodeTemplate& t = _nodeTemplates[_createType];
-    Node* node = new Node(t, pt);
-    node->id = _nextNodeId++;
+    Node* node = new Node(t, pt, _nextNodeId++);
     _nodes.push_back(node);
     resetState();
     return;
