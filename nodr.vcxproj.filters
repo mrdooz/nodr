@@ -85,11 +85,17 @@
     <ClCompile Include="..\..\..\addons\ofxGuiExtended\src\ofxVerticalSlider.cpp">
       <Filter>addons\ofxGuiExtended\src</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\addons\ofxGuiPlus\src\ofxSliderGroupPlus.cpp">
-      <Filter>addons\ofxGuiPlus\src</Filter>
+    <ClCompile Include="..\..\..\addons\ofxNetwork\src\ofxTCPClient.cpp">
+      <Filter>addons\ofxNetwork\src</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\addons\ofxGuiPlus\src\ofxSliderPlus.cpp">
-      <Filter>addons\ofxGuiPlus\src</Filter>
+    <ClCompile Include="..\..\..\addons\ofxNetwork\src\ofxTCPManager.cpp">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\addons\ofxNetwork\src\ofxTCPServer.cpp">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\addons\ofxNetwork\src\ofxUDPManager.cpp">
+      <Filter>addons\ofxNetwork\src</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\addons\ofxOsc\src\ofxOscBundle.cpp">
       <Filter>addons\ofxOsc\src</Filter>
@@ -127,9 +133,6 @@
     <ClCompile Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscTypes.cpp">
       <Filter>addons\ofxOsc\libs\oscpack\src\osc</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\addons\ofxTextInputField\src\ofxTextInputField.cpp">
-      <Filter>addons\ofxTextInputField\src</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\..\addons\ofxXmlSettings\src\ofxXmlSettings.cpp">
       <Filter>addons\ofxXmlSettings\src</Filter>
     </ClCompile>
@@ -142,6 +145,7 @@
     <ClCompile Include="..\..\..\addons\ofxXmlSettings\libs\tinyxmlparser.cpp">
       <Filter>addons\ofxXmlSettings\libs</Filter>
     </ClCompile>
+    <ClCompile Include="src\xml_utils.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="src">
@@ -162,11 +166,11 @@
     <Filter Include="addons\ofxGuiExtended\src">
       <UniqueIdentifier>{CDB195B0-A6DE-7083-7BBF-FD31}</UniqueIdentifier>
     </Filter>
-    <Filter Include="addons\ofxGuiPlus">
-      <UniqueIdentifier>{0288AED4-AC7C-3292-59B2-57EF}</UniqueIdentifier>
+    <Filter Include="addons\ofxNetwork">
+      <UniqueIdentifier>{01A15744-29A6-108D-08E9-83A7}</UniqueIdentifier>
     </Filter>
-    <Filter Include="addons\ofxGuiPlus\src">
-      <UniqueIdentifier>{D5DC5001-E26B-1C98-7D3E-8673}</UniqueIdentifier>
+    <Filter Include="addons\ofxNetwork\src">
+      <UniqueIdentifier>{3D1C10C7-8F35-E796-9C70-F5F3}</UniqueIdentifier>
     </Filter>
     <Filter Include="addons\ofxOsc">
       <UniqueIdentifier>{D91DCA33-6E5D-4481-2AEC-9FBB}</UniqueIdentifier>
@@ -191,12 +195,6 @@
     </Filter>
     <Filter Include="addons\ofxOsc\libs\oscpack\src\osc">
       <UniqueIdentifier>{EDACB89C-9768-9551-4D41-B590}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="addons\ofxTextInputField">
-      <UniqueIdentifier>{A4B02712-30E4-B504-C110-2C93}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="addons\ofxTextInputField\src">
-      <UniqueIdentifier>{B67AFC83-AF32-6FE3-281F-AC21}</UniqueIdentifier>
     </Filter>
     <Filter Include="addons\ofxXmlSettings">
       <UniqueIdentifier>{877F005D-13E6-0592-1D97-F2E3}</UniqueIdentifier>
@@ -293,14 +291,23 @@
     <ClInclude Include="..\..\..\addons\ofxGuiExtended\src\ofxVerticalSlider.h">
       <Filter>addons\ofxGuiExtended\src</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\addons\ofxGuiPlus\src\ofxGuiPlus.h">
-      <Filter>addons\ofxGuiPlus\src</Filter>
+    <ClInclude Include="..\..\..\addons\ofxNetwork\src\ofxNetwork.h">
+      <Filter>addons\ofxNetwork\src</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\addons\ofxGuiPlus\src\ofxSliderGroupPlus.h">
-      <Filter>addons\ofxGuiPlus\src</Filter>
+    <ClInclude Include="..\..\..\addons\ofxNetwork\src\ofxNetworkUtils.h">
+      <Filter>addons\ofxNetwork\src</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\addons\ofxGuiPlus\src\ofxSliderPlus.h">
-      <Filter>addons\ofxGuiPlus\src</Filter>
+    <ClInclude Include="..\..\..\addons\ofxNetwork\src\ofxTCPClient.h">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\addons\ofxNetwork\src\ofxTCPManager.h">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\addons\ofxNetwork\src\ofxTCPServer.h">
+      <Filter>addons\ofxNetwork\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\addons\ofxNetwork\src\ofxUDPManager.h">
+      <Filter>addons\ofxNetwork\src</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\addons\ofxOsc\src\ofxOsc.h">
       <Filter>addons\ofxOsc\src</Filter>
@@ -362,18 +369,13 @@
     <ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscTypes.h">
       <Filter>addons\ofxOsc\libs\oscpack\src\osc</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\addons\ofxTextInputField\src\ofxTextInputField.h">
-      <Filter>addons\ofxTextInputField\src</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\addons\ofxTextInputField\src\ofxTextInputFieldFontRenderer.h">
-      <Filter>addons\ofxTextInputField\src</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\..\addons\ofxXmlSettings\src\ofxXmlSettings.h">
       <Filter>addons\ofxXmlSettings\src</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\addons\ofxXmlSettings\libs\tinyxml.h">
       <Filter>addons\ofxXmlSettings\libs</Filter>
     </ClInclude>
+    <ClInclude Include="src\xml_utils.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="icon.rc" />

@@ -1,6 +1,5 @@
 ofxGui
 ofxGuiExtended
-ofxGuiPlus
+ofxNetwork
 ofxOsc
-ofxTextInputField
 ofxXmlSettings

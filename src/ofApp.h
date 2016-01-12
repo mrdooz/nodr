@@ -3,7 +3,6 @@
 #include "ofMain.h"
 #include <ofxGui.h>
 #include <ofxGuiExtended.h>
-#include <ofxGuiPlus.h>
 
 enum class ParamType
 {
@@ -37,6 +36,7 @@ struct NodeTemplate
   vector<NodeParam> inputs;
   vector<NodeParam> params;
   ParamType output;
+  int id;
   ofRectangle rect;
 };
 

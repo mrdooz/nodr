@@ -1,13 +1,31 @@
 <NodeTemplates>
+    <Category name="Memory">
+        <NodeTemplate name="Load" id="01">
+            <Params>
+                <Param name="source" type="texture"/>
+            </Params>
+            <Output type="texture"/>
+        </NodeTemplate>
+
+        <NodeTemplate name="Store" id="02">
+            <Inputs>
+                <Input name="sink" type="texture"/>
+            </Inputs>
+            <Params>
+                <Param name="source" type="texture"/>
+            </Params>
+        </NodeTemplate>
+    </Category>
+
     <Category name="Generators">
-        <NodeTemplate name="Create">
+        <NodeTemplate name="Create" id="16">
             <Params>
                 <Param name="color" type="color"/>
             </Params>
             <Output type="texture"/>
         </NodeTemplate>
 
-        <NodeTemplate name="RadialGradient">
+        <NodeTemplate name="RadialGradient" id="17">
             <Params>
                 <Param name="center" type="vec2"/>
                 <Param name="power" type="float"/>
@@ -15,7 +33,7 @@
             <Output type="texture"/>
         </NodeTemplate>
 
-        <NodeTemplate name="LinearGradient">
+        <NodeTemplate name="LinearGradient" id="18">
             <Params>
                 <Param name="pt0" type="vec2"/>
                 <Param name="pt1" type="vec2"/>
@@ -24,7 +42,7 @@
             <Output type="texture"/>
         </NodeTemplate>
 
-        <NodeTemplate name="Sinus">
+        <NodeTemplate name="Sinus" id="19">
             <Params>
                 <Param name="freq" type="float"/>
                 <Param name="amp" type="float"/>
@@ -36,7 +54,7 @@
     </Category>
     <Category name="Modifers">
 
-        <NodeTemplate name="Modulate">
+        <NodeTemplate name="Modulate" id="64">
             <Inputs>
                 <Input name="a" type="texture"/>
                 <Input name="b" type="texture"/>
@@ -48,7 +66,7 @@
             <Output type="texture"/>
         </NodeTemplate>
 
-        <NodeTemplate name="RotateScale">
+        <NodeTemplate name="RotateScale" id="65">
             <Inputs>
                 <Input name="a" type="texture"/>
             </Inputs>
@@ -59,7 +77,7 @@
             <Output type="texture"/>
         </NodeTemplate>
 
-        <NodeTemplate name="Distort">
+        <NodeTemplate name="Distort" id="66">
             <Inputs>
                 <Input name="a" type="texture"/>
                 <Input name="b" type="texture"/>
@@ -71,7 +89,7 @@
             <Output type="texture"/>
         </NodeTemplate>
 
-        <NodeTemplate name="ColorGradient">
+        <NodeTemplate name="ColorGradient" id="67">
             <Inputs>
                 <Input name="a" type="texture"/>
             </Inputs>
@@ -83,22 +101,4 @@
         </NodeTemplate>
 
     </Category>
-    <Category name="Memory">
-        <NodeTemplate name="Load">
-            <Params>
-                <Param name="source" type="texture"/>
-            </Params>
-            <Output type="texture"/>
-        </NodeTemplate>
-
-        <NodeTemplate name="Store">
-            <Inputs>
-                <Input name="sink" type="texture"/>
-            </Inputs>
-            <Params>
-                <Param name="source" type="texture"/>
-            </Params>
-        </NodeTemplate>
-    </Category>
-
 </NodeTemplates>

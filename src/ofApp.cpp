@@ -1,7 +1,8 @@
 #include "ofApp.h"
-#include <ofxXmlSettings.h>
-#include <math.h>
+#include "xml_utils.hpp"
 #include <commdlg.h>
+#include <math.h>
+#include <ofxXmlSettings.h>
 
 //--------------------------------------------------------------
 static const int FONT_HEIGHT = 12;
@@ -303,47 +304,29 @@ bool validConnection(const NodeConnector* a, const NodeConnector* b)
   return true;
 }
 
-struct TagCreator
+//--------------------------------------------------------------
+const ofAbstractParameter* getParamBase(const Node::Param& p)
 {
-  template <typename... Tags>
-  void addAttributes()
+  switch (p.type)
   {
-    if (enter)
-      s.pushTag(tag, which);
+    case ParamType::Float: return &p.value.fValue;
+    case ParamType::Vec2: return &p.value.vValue;
+    case ParamType::Color: return &p.value.cValue;
+    default: return nullptr;
   }
+}
 
-  template <typename Name, typename Value, typename... Tags>
-  void addAttributes(Name name, Value value, Tags... tags)
+//--------------------------------------------------------------
+ofAbstractParameter* getParamBase(Node::Param& p)
+{
+  switch (p.type)
   {
-    s.addAttribute(tag, name, value, which);
-    addAttributes(tags...);
+    case ParamType::Float: return &p.value.fValue;
+    case ParamType::Vec2: return &p.value.vValue;
+    case ParamType::Color: return &p.value.cValue;
+    default: return nullptr;
   }
-
-  template <typename... Tags>
-  TagCreator(ofxXmlSettings& s, const string& tag, int which, bool enter, Tags... tags)
-      : tag(tag), which(which), s(s), enter(enter)
-  {
-    s.addTag(tag);
-    addAttributes(tags...);
-  }
-
-  ~TagCreator()
-  {
-    if (enter)
-      s.popTag();
-  }
-
-  string tag;
-  int which;
-  bool enter;
-  ofxXmlSettings& s;
-};
-
-#define GEN_NAME2(prefix, line) prefix##line
-#define GEN_NAME(prefix, line) GEN_NAME2(prefix, line)
-#define MAKE_SCOPED(type) type GEN_NAME(ANON, __LINE__)
-#define CREATE_TAG(tag, i, ...) TagCreator GEN_NAME(ANON, __LINE__)(s, tag, i, true, __VA_ARGS__)
-#define CREATE_LOCAL_TAG(tag, i, ...) TagCreator GEN_NAME(ANON, __LINE__)(s, tag, i, false, __VA_ARGS__)
+}
 
 //--------------------------------------------------------------
 static ParamType stringToParamType(const string& str)
@@ -364,9 +347,9 @@ static ParamType stringToParamType(const string& str)
 }
 
 //--------------------------------------------------------------
-static string paramTypeToString(ParamType type)
+static string paramTypeToString(const Node::Param& p)
 {
-  switch (type)
+  switch (p.type)
   {
     case ParamType::Float: return "float";
     case ParamType::Vec2: return "vec2";
@@ -379,24 +362,16 @@ static string paramTypeToString(ParamType type)
 //--------------------------------------------------------------
 static string paramValueToString(const Node::Param& p)
 {
-  switch (p.type)
-  {
-    case ParamType::Float: return p.value.fValue.toString();
-    case ParamType::Vec2: return p.value.vValue.toString();
-    case ParamType::Color: return p.value.cValue.toString();
-    default: return "";
-  }
+  const ofAbstractParameter* ap = getParamBase(p);
+  return ap ? ap->toString() : "";
 }
 
 //--------------------------------------------------------------
 static void stringToParamValue(const string& str, Node::Param* p)
 {
-  switch (p->type)
-  {
-  case ParamType::Float: p->value.fValue.fromString(str); break;
-  case ParamType::Vec2: p->value.vValue.fromString(str); break;
-  case ParamType::Color: p->value.cValue.fromString(str); break;
-  }
+  ofAbstractParameter* ap = getParamBase(*p);
+  if (ap)
+    ap->fromString(str);
 }
 
 //--------------------------------------------------------------
@@ -425,18 +400,17 @@ void ofApp::saveToFile(const string& filename)
 
         // Only need to save top-left pos
         CREATE_LOCAL_TAG("Pos", -1, "x", node->headingRect.x, "y", node->headingRect.y);
-      
+
         {
           CREATE_TAG("Params", 0);
           for (size_t i = 0; i < node->params.size(); ++i)
           {
             const Node::Param& p = node->params[i];
-            string type = paramTypeToString(p.type);
+            string type = paramTypeToString(p);
             string value = paramValueToString(p);
             CREATE_LOCAL_TAG("Param", i, "name", p.name, "type", type, "value", value);
           }
         }
-
         nodeIdx++;
       }
     }
@@ -452,7 +426,8 @@ void ofApp::saveToFile(const string& filename)
       {
         if (Node* p = con->parent)
         {
-          CREATE_LOCAL_TAG("Connection", conIdx, "from", node->id, "to_node", p->id, "to_input", con->name);
+          CREATE_LOCAL_TAG(
+              "Connection", conIdx, "from", node->id, "to_node", p->id, "to_input", con->name);
           conIdx++;
         }
       }
@@ -485,14 +460,15 @@ void ofApp::loadFromFile(const string& filename)
     int numNodes = s.getNumTags("Node");
     for (int i = 0; i < numNodes; ++i)
     {
-      string name = s.getAttribute("Node", "name", "", i);
-      int id = atoi(s.getAttribute("Node", "id", "", i).c_str());
+      string name;
+      int id;
+      getAttributes(s, "Node", i, "name", &name, "id", &id);
       maxNodeId = max(maxNodeId, id);
 
       s.pushTag("Node", i);
 
-      float x = (float)atof(s.getAttribute("Pos", "x", "", 0).c_str());
-      float y = (float)atof(s.getAttribute("Pos", "y", "", 0).c_str());
+      float x, y;
+      getAttributes(s, "Pos", 0, "x", &x, "y", &y);
 
       const NodeTemplate& t = _nodeTemplates[name];
       Node* node = new Node(t, ofPoint(x, y), id);
@@ -502,9 +478,8 @@ void ofApp::loadFromFile(const string& filename)
         int numParams = s.getNumTags("Param");
         for (int j = 0; j < numParams; ++j)
         {
-          string name = s.getAttribute("Param", "name", "", j);
-          string value = s.getAttribute("Param", "value", "", j);
-
+          string name, value;
+          getAttributes(s, "Param", j, "name", &name, "value", &value);
           if (Node::Param* param = node->findParam(name))
           {
             stringToParamValue(value, param);
@@ -529,10 +504,9 @@ void ofApp::loadFromFile(const string& filename)
     int numConnections = s.getNumTags("Connection");
     for (int i = 0; i < numConnections; ++i)
     {
-      int fromId = atoi(s.getAttribute("Connection", "from", "", i).c_str());
-      int toId = atoi(s.getAttribute("Connection", "to_node", "", i).c_str());
-      string inputName = s.getAttribute("Connection", "to_input", "", i);
-
+      int fromId, toId;
+      string inputName;
+      getAttributes(s, "Connection", i, "from", &fromId, "to_node", &toId, "to_input", &inputName);
       Node* fromNode = nodeById(fromId);
       Node* toNode = nodeById(toId);
       NodeConnector* con = toNode->findConnector(inputName);
@@ -547,7 +521,6 @@ void ofApp::loadFromFile(const string& filename)
   }
 
   _nextNodeId = maxNodeId + 1;
-
 }
 
 //--------------------------------------------------------------
@@ -602,7 +575,7 @@ ofApp::~ofApp()
 void ofApp::loadTemplates()
 {
   auto& fnAddButton = [this](
-    ofxPanel* panel, vector<ofxMinimalButton*>* buttons, const string& type) {
+      ofxPanel* panel, vector<ofxMinimalButton*>* buttons, const string& type) {
     ofxMinimalButton* b = new ofxMinimalButton();
     b->setup(type);
     b->addListener(this, &ofApp::setupCreateNode);
@@ -629,12 +602,14 @@ void ofApp::loadTemplates()
       for (int j = 0; j < numTemplates; ++j)
       {
         string templateName = s.getAttribute("NodeTemplate", "name", "", j);
+        int id = atoi(s.getAttribute("NodeTemplate", "id", "", j).c_str());
         s.pushTag("NodeTemplate", j);
 
         fnAddButton(panel, &_categoryButtons, templateName);
 
         NodeTemplate& t = _nodeTemplates[templateName];
         t.name = templateName;
+        t.id = id;
 
         if (s.tagExists("Inputs") && s.pushTag("Inputs"))
         {
@@ -643,7 +618,7 @@ void ofApp::loadTemplates()
           {
             string inputName = s.getAttribute("Input", "name", "", aa);
             ParamType inputType = stringToParamType(s.getAttribute("Input", "type", "", aa));
-            t.inputs.push_back(NodeTemplate::NodeParam{ inputName, inputType });
+            t.inputs.push_back(NodeTemplate::NodeParam{inputName, inputType});
           }
           s.popTag();
         }
@@ -655,7 +630,7 @@ void ofApp::loadTemplates()
           {
             string paramName = s.getAttribute("Param", "name", "", aa);
             ParamType paramType = stringToParamType(s.getAttribute("Param", "type", "", aa));
-            t.params.push_back(NodeTemplate::NodeParam{ paramName, paramType });
+            t.params.push_back(NodeTemplate::NodeParam{paramName, paramType});
           }
           s.popTag();
         }
@@ -694,7 +669,7 @@ void createGraph(const vector<Node*> nodes, vector<Node*>* sortedNodes)
 
   for (Node* node : nodes)
   {
-    graph.push_back(GraphNode{ node });
+    graph.push_back(GraphNode{node});
   }
 
   for (GraphNode& g : graph)
@@ -711,7 +686,7 @@ void createGraph(const vector<Node*> nodes, vector<Node*>* sortedNodes)
   while (!graph.empty())
   {
     Node* node = nullptr;
-    for (auto it = graph.begin(); it != graph.end(); )
+    for (auto it = graph.begin(); it != graph.end();)
     {
       if (it->inEdges.empty())
       {
@@ -734,7 +709,7 @@ void createGraph(const vector<Node*> nodes, vector<Node*>* sortedNodes)
     // remove occurences of node from the other node's in-edges
     for (GraphNode& g : graph)
     {
-      for (auto it = g.inEdges.begin(); it != g.inEdges.end(); )
+      for (auto it = g.inEdges.begin(); it != g.inEdges.end();)
       {
         if (*it == node)
         {
@@ -746,17 +721,175 @@ void createGraph(const vector<Node*> nodes, vector<Node*>* sortedNodes)
         }
       }
     }
-    
+
     sortedNodes->push_back(node);
   }
-
 }
+
+typedef uint8_t u8;
+
+enum class VmCmdType : u8
+{
+  CreateTexture,
+  FuncCall
+};
+
+struct VmCmd
+{
+  VmCmdType type;
+  uint8_t dstId;
+  void* data;
+};
+
+struct VmPrg
+{
+  u8 version = 1;
+  u8 texturesUsed = 0;
+};
+
+struct BinaryWriter
+{
+  template <typename T>
+  void write(const T& v)
+  {
+    size_t oldPos = buf.size();
+    buf.resize(buf.size() + sizeof(T));
+    memcpy(buf.data() + oldPos, (const void*)&v, sizeof(T));
+  }
+
+  vector<u8> buf;
+};
 
 //--------------------------------------------------------------
 void ofApp::onGenerateCallback(const void* sender)
 {
   vector<Node*> sorted;
   createGraph(_nodes, &sorted);
+
+  // check that each node has its inputs filled
+  for (Node* node : _nodes)
+  {
+    for (NodeConnector& con : node->inputs)
+    {
+      if (!con.parent)
+      {
+        printf("Node: %s missing input\n", node->name.c_str());
+        return;
+      }
+    }
+  }
+
+  // For each OUT, we try to grab an existing texture - Create if needed
+  // Textures are references counted - Initialized to # inputs, and decremented when each block
+  // has been processed. When a ref hits zero, return the texture to the pool.
+
+  vector<VmCmd> commands;
+  stack<u8> texturePool;
+  u8 nextTextureId = 0;
+
+  // Map to keep track of which texture id corresponds to each node's output
+  unordered_map<Node*, int> nodeOutTexture;
+  unordered_map<Node*, int> nodeOutRefCount;
+
+  // Write the header
+  BinaryWriter w;
+  VmPrg prg;
+  w.write(prg);
+
+  // create a command list for the texture
+  for (Node* node : sorted)
+  {
+    // create an output texture if needed
+    if (texturePool.empty())
+    {
+      // create texture
+      w.write(VmCmdType::CreateTexture);
+      w.write(nextTextureId);
+      texturePool.push(nextTextureId++);
+    }
+
+    u8 outputTexture = texturePool.top();
+    texturePool.pop();
+
+    // Inc the ref count on the output texture for each input node that uses it
+    nodeOutRefCount[node] = (int)node->output.cons.size();
+
+    // write the template id
+    w.write(_nodeTemplates[node->name].id);
+
+    // Set up texture inputs
+    w.write((u8)node->inputs.size());
+
+    for (const NodeConnector& con : node->inputs)
+    {
+      u8 inputTextureId = nodeOutTexture[con.parent];
+      w.write(inputTextureId);
+    }
+
+    // Write the parameters
+    // NB: because these are written as-is to constant buffers, we need to take care with
+    // aligning parameters on 32 bit boundaries
+    int curOffset = 0;
+    for (const Node::Param& param : node->params)
+    {
+      int s = unordered_map<ParamType, int>
+      {
+        {ParamType::Float, 1}, {ParamType::Vec2, 2}, {ParamType::Texture, 4},
+      }
+      [param.type];
+
+      if (curOffset + s > 4)
+      {
+        // Apply padding
+        for (int i = 0; i < (curOffset + s) % 4; ++i)
+          w.write(0.0f);
+        curOffset = 0;
+      }
+
+      if (param.type == ParamType::Float)
+      {
+        w.write(param.value.fValue.get());
+      }
+      else if (param.type == ParamType::Vec2)
+      {
+        w.write(param.value.vValue.get().x);
+        w.write(param.value.vValue.get().y);
+      }
+      else if (param.type == ParamType::Color)
+      {
+        w.write((float)param.value.cValue.get().r / 255.f);
+        w.write((float)param.value.cValue.get().g / 255.f);
+        w.write((float)param.value.cValue.get().b / 255.f);
+        w.write((float)param.value.cValue.get().a / 255.f);
+      }
+      curOffset = (curOffset + s) % 4;
+    }
+
+    // dec the ref count on any used textures, and return any that have a zero count
+    for (NodeConnector& con : node->inputs)
+    {
+      nodeOutRefCount[con.parent]--;
+    }
+
+    // return any unreferenced textures to the pool
+    for (auto it = nodeOutRefCount.begin(); it != nodeOutRefCount.end(); )
+    {
+      if (it->second == 0)
+      {
+        u8 textureId = nodeOutTexture[it->first];
+        texturePool.push(textureId);
+        it = nodeOutRefCount.erase(it);
+      }
+      else
+      {
+        it++;
+      }
+    }
+  }
+
+  // write # textures used
+  ((VmPrg*)w.buf.data())->texturesUsed = nextTextureId;
+  int a = 10;
 }
 
 //--------------------------------------------------------------
@@ -975,7 +1108,7 @@ NodeConnector* ofApp::connectorAtPoint(const ofPoint& pt)
     for (auto& input : node->inputs)
     {
       // skip already connected nodes
-      //if (!input.cons.empty())
+      // if (!input.cons.empty())
       //  continue;
 
       if (insideConnector(input.pt))
@@ -1094,12 +1227,10 @@ void ofApp::initNodeParameters(Node* node)
   {
     switch (p.type)
     {
-    case ParamType::Void: break;
-    case ParamType::Float: _varPanel.add(p.value.fValue); break;
-    case ParamType::Vec2: _varPanel.add(p.value.vValue); break;
-    case ParamType::Color: _varPanel.add(p.value.cValue); break;
-    case ParamType::Texture: break;
-    default: break;
+      case ParamType::Float: _varPanel.add(p.value.fValue); break;
+      case ParamType::Vec2: _varPanel.add(p.value.vValue); break;
+      case ParamType::Color: _varPanel.add(p.value.cValue); break;
+      default: break;
     }
   }
 }
