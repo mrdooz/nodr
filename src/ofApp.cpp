@@ -728,19 +728,6 @@ void createGraph(const vector<Node*> nodes, vector<Node*>* sortedNodes)
 
 typedef uint8_t u8;
 
-enum class VmCmdType : u8
-{
-  CreateTexture,
-  FuncCall
-};
-
-struct VmCmd
-{
-  VmCmdType type;
-  uint8_t dstId;
-  void* data;
-};
-
 struct VmPrg
 {
   u8 version = 1;
@@ -783,7 +770,6 @@ void ofApp::onGenerateCallback(const void* sender)
   // Textures are references counted - Initialized to # inputs, and decremented when each block
   // has been processed. When a ref hits zero, return the texture to the pool.
 
-  vector<VmCmd> commands;
   stack<u8> texturePool;
   u8 nextTextureId = 0;
 
@@ -801,12 +787,7 @@ void ofApp::onGenerateCallback(const void* sender)
   {
     // create an output texture if needed
     if (texturePool.empty())
-    {
-      // create texture
-      w.write(VmCmdType::CreateTexture);
-      w.write(nextTextureId);
       texturePool.push(nextTextureId++);
-    }
 
     u8 outputTexture = texturePool.top();
     texturePool.pop();
@@ -816,6 +797,7 @@ void ofApp::onGenerateCallback(const void* sender)
 
     // write the template id
     w.write(_nodeTemplates[node->name].id);
+    w.write(outputTexture);
 
     // Set up texture inputs
     w.write((u8)node->inputs.size());
@@ -868,28 +850,22 @@ void ofApp::onGenerateCallback(const void* sender)
     // dec the ref count on any used textures, and return any that have a zero count
     for (NodeConnector& con : node->inputs)
     {
-      nodeOutRefCount[con.parent]--;
-    }
-
-    // return any unreferenced textures to the pool
-    for (auto it = nodeOutRefCount.begin(); it != nodeOutRefCount.end(); )
-    {
-      if (it->second == 0)
+      Node* node = con.parent;
+      if (--nodeOutRefCount[node] == 0)
       {
-        u8 textureId = nodeOutTexture[it->first];
-        texturePool.push(textureId);
-        it = nodeOutRefCount.erase(it);
-      }
-      else
-      {
-        it++;
+        texturePool.push(nodeOutTexture[node]);
+        nodeOutRefCount.erase(node);
       }
     }
   }
 
   // write # textures used
   ((VmPrg*)w.buf.data())->texturesUsed = nextTextureId;
-  int a = 10;
+
+  FILE* ff = fopen("texture.dat", "wb");
+  fwrite(w.buf.data(), 1, (int)w.buf.size(), ff);
+  fclose(ff);
+
 }
 
 //--------------------------------------------------------------
