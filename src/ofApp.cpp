@@ -727,6 +727,7 @@ void createGraph(const vector<Node*> nodes, vector<Node*>* sortedNodes)
 }
 
 typedef uint8_t u8;
+typedef uint16_t u16;
 
 struct VmPrg
 {
@@ -742,6 +743,19 @@ struct BinaryWriter
     size_t oldPos = buf.size();
     buf.resize(buf.size() + sizeof(T));
     memcpy(buf.data() + oldPos, (const void*)&v, sizeof(T));
+  }
+
+  template <typename T>
+  void writeAt(const T& v, int pos)
+  {
+    assert(sizeof(T) + pos <= (int)buf.size());
+    memcpy(buf.data() + pos, (const void*)&v, sizeof(T));
+  }
+
+
+  int getPos() const
+  {
+    return (int)buf.size();
   }
 
   vector<u8> buf;
@@ -796,7 +810,7 @@ void ofApp::onGenerateCallback(const void* sender)
     nodeOutRefCount[node] = (int)node->output.cons.size();
 
     // write the template id
-    w.write(_nodeTemplates[node->name].id);
+    w.write((u8)_nodeTemplates[node->name].id);
     w.write(outputTexture);
 
     // Set up texture inputs
@@ -808,17 +822,28 @@ void ofApp::onGenerateCallback(const void* sender)
       w.write(inputTextureId);
     }
 
+    u16 cbufferSize = 0;
+    int cbufferSizePos = w.getPos();
+    w.write(cbufferSize);
+
+    static unordered_map<ParamType, int> paramSize = {
+        {ParamType::Float, sizeof(float)},
+        {ParamType::Vec2, 2 * sizeof(float)},
+        {ParamType::Color, 4 * sizeof(float)},
+    };
+
     // Write the parameters
     // NB: because these are written as-is to constant buffers, we need to take care with
     // aligning parameters on 32 bit boundaries
     int curOffset = 0;
     for (const Node::Param& param : node->params)
     {
-      int s = unordered_map<ParamType, int>
+      int s = paramSize[param.type];
+      if (s == 0)
       {
-        {ParamType::Float, 1}, {ParamType::Vec2, 2}, {ParamType::Texture, 4},
+        assert(false);
+        // error: unknown type
       }
-      [param.type];
 
       if (curOffset + s > 4)
       {
@@ -844,8 +869,11 @@ void ofApp::onGenerateCallback(const void* sender)
         w.write((float)param.value.cValue.get().b / 255.f);
         w.write((float)param.value.cValue.get().a / 255.f);
       }
+      cbufferSize += s;
       curOffset = (curOffset + s) % 4;
     }
+
+    w.writeAt(cbufferSize, cbufferSizePos);
 
     // dec the ref count on any used textures, and return any that have a zero count
     for (NodeConnector& con : node->inputs)

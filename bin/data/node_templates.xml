@@ -2,7 +2,7 @@
     <Category name="Memory">
         <NodeTemplate name="Load" id="01">
             <Params>
-                <Param name="source" type="texture"/>
+                <!-- <Param name="source" type="texture"/> -->
             </Params>
             <Output type="texture"/>
         </NodeTemplate>
@@ -12,13 +12,13 @@
                 <Input name="sink" type="texture"/>
             </Inputs>
             <Params>
-                <Param name="source" type="texture"/>
+                <!-- <Param name="source" type="texture"/> -->
             </Params>
         </NodeTemplate>
     </Category>
 
     <Category name="Generators">
-        <NodeTemplate name="Create" id="16">
+        <NodeTemplate name="Fill" id="16">
             <Params>
                 <Param name="color" type="color"/>
             </Params>
