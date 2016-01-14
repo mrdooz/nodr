@@ -305,25 +305,18 @@ bool validConnection(const NodeConnector* a, const NodeConnector* b)
 }
 
 //--------------------------------------------------------------
-const ofAbstractParameter* getParamBase(const Node::Param& p)
+template <typename T,
+    typename Ret =
+        conditional<is_const<T>::value, const ofAbstractParameter*, ofAbstractParameter*>::type>
+Ret getParamBase(T& p)
 {
   switch (p.type)
   {
+    case ParamType::Bool: return &p.value.bValue;
     case ParamType::Float: return &p.value.fValue;
     case ParamType::Vec2: return &p.value.vValue;
     case ParamType::Color: return &p.value.cValue;
-    default: return nullptr;
-  }
-}
-
-//--------------------------------------------------------------
-ofAbstractParameter* getParamBase(Node::Param& p)
-{
-  switch (p.type)
-  {
-    case ParamType::Float: return &p.value.fValue;
-    case ParamType::Vec2: return &p.value.vValue;
-    case ParamType::Color: return &p.value.cValue;
+    case ParamType::String: return &p.value.sValue;
     default: return nullptr;
   }
 }
@@ -331,8 +324,14 @@ ofAbstractParameter* getParamBase(Node::Param& p)
 //--------------------------------------------------------------
 static ParamType stringToParamType(const string& str)
 {
+  if (str == "bool")
+    return ParamType::Bool;
+
   if (str == "float")
     return ParamType::Float;
+
+  if (str == "vec2")
+    return ParamType::Vec2;
 
   if (str == "color")
     return ParamType::Color;
@@ -340,8 +339,8 @@ static ParamType stringToParamType(const string& str)
   if (str == "texture")
     return ParamType::Texture;
 
-  if (str == "vec2")
-    return ParamType::Vec2;
+  if (str == "string")
+    return ParamType::String;
 
   return ParamType::Void;
 }
@@ -351,10 +350,12 @@ static string paramTypeToString(const Node::Param& p)
 {
   switch (p.type)
   {
+    case ParamType::Bool: return "bool";
     case ParamType::Float: return "float";
     case ParamType::Vec2: return "vec2";
     case ParamType::Color: return "color";
     case ParamType::Texture: return "texture";
+    case ParamType::String: return "string";
     default: return "";
   }
 }
@@ -601,8 +602,9 @@ void ofApp::loadTemplates()
       int numTemplates = s.getNumTags("NodeTemplate");
       for (int j = 0; j < numTemplates; ++j)
       {
-        string templateName = s.getAttribute("NodeTemplate", "name", "", j);
-        int id = atoi(s.getAttribute("NodeTemplate", "id", "", j).c_str());
+        string templateName;
+        int id;
+        getAttributes(s, "NodeTemplate", j, "name", &templateName, "id", &id);
         s.pushTag("NodeTemplate", j);
 
         fnAddButton(panel, &_categoryButtons, templateName);
@@ -1111,10 +1113,6 @@ NodeConnector* ofApp::connectorAtPoint(const ofPoint& pt)
   {
     for (auto& input : node->inputs)
     {
-      // skip already connected nodes
-      // if (!input.cons.empty())
-      //  continue;
-
       if (insideConnector(input.pt))
       {
         return &input;
@@ -1231,8 +1229,10 @@ void ofApp::initNodeParameters(Node* node)
   {
     switch (p.type)
     {
+      case ParamType::Bool: _varPanel.add(p.value.bValue); break;
       case ParamType::Float: _varPanel.add(p.value.fValue); break;
       case ParamType::Vec2: _varPanel.add(p.value.vValue); break;
+      case ParamType::String: _varPanel.add(p.value.sValue); break;
       case ParamType::Color: _varPanel.add(p.value.cValue); break;
       default: break;
     }

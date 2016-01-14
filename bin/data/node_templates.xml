@@ -2,7 +2,7 @@
     <Category name="Memory">
         <NodeTemplate name="Load" id="01">
             <Params>
-                <!-- <Param name="source" type="texture"/> -->
+                <Param name="name" type="string"/>
             </Params>
             <Output type="texture"/>
         </NodeTemplate>
@@ -12,7 +12,8 @@
                 <Input name="sink" type="texture"/>
             </Inputs>
             <Params>
-                <!-- <Param name="source" type="texture"/> -->
+                <Param name="final" type="bool"/>
+                <Param name="name" type="string"/>
             </Params>
         </NodeTemplate>
     </Category>

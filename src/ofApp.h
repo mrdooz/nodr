@@ -7,10 +7,12 @@
 enum class ParamType
 {
   Void,
+  Bool,
   Float,
   Vec2,
   Color,
   Texture,
+  String,
 };
 
 struct ParamValue
@@ -18,7 +20,8 @@ struct ParamValue
   ofParameter<float> fValue;
   ofParameter<ofVec2f> vValue;
   ofParameter<ofColor> cValue;
-  string tValue;
+  ofParameter<bool> bValue;
+  ofParameter<string> sValue;
 };
 
 // Templates are the descriptions of the node types
@@ -82,9 +85,11 @@ struct Node
       switch (type)
       {
         case ParamType::Void: break;
+        case ParamType::Bool: value.bValue.setName(name); break;
         case ParamType::Float: value.fValue.set(name, 0, 0, 100); break;
         case ParamType::Vec2: value.vValue.set(name, ofVec2f(0,0), ofVec2f(-1, -1), ofVec2f(1, 1)); break;
         case ParamType::Color: value.cValue.set(name, ofColor(100), ofColor(0), ofColor(255)); break;
+        case ParamType::String: value.sValue.setName(name); break;
         case ParamType::Texture: break;
         default: break;
       }
