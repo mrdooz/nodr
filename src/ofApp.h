@@ -14,11 +14,6 @@ enum class ParamType
   String,
 };
 
-struct ParamColor
-{
-  float r, g, b, a;
-};
-
 enum ParamFlag
 {
   PARAM_FLAG_HAS_MIN_MAX = 0x1,
@@ -42,7 +37,7 @@ struct ParamValue
 {
   ParamFloat fValue;
   ParamVec2 vValue;
-  ParamColor cValue;
+  ofColor_<float> cValue;
   bool bValue;
   string sValue;
 };
@@ -115,9 +110,9 @@ struct Node
   ofRectangle bodyRect;
   ofRectangle headingRect;
   vector<Param> params;
-  vector<NodeConnector> inputs;
+  vector<NodeConnector*> inputs;
   // NB: a node with no output has a void type for its connector
-  NodeConnector output;
+  NodeConnector* output;
   int id;
 };
 

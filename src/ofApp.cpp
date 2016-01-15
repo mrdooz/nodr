@@ -150,7 +150,7 @@ Node::Node(const NodeTemplate* t, const ofPoint& pt, int id) : name(t->name), id
   for (size_t i = 0; i < t->inputs.size(); ++i)
   {
     const NodeTemplate::NodeParam& input = t->inputs[i];
-    inputs.push_back(NodeConnector(input.name,
+    inputs.push_back(new NodeConnector(input.name,
         input.type,
         NodeConnector::Dir::Input,
         ofPoint(bodyRect.x + INPUT_PADDING + CONNECTOR_RADIUS, y + INPUT_HEIGHT / 2),
@@ -163,7 +163,7 @@ Node::Node(const NodeTemplate* t, const ofPoint& pt, int id) : name(t->name), id
     params.push_back(Node::Param(param.name, param.type));
   }
 
-  output = NodeConnector("out",
+  output = new NodeConnector("out",
       t->output,
       NodeConnector::Dir::Output,
       ofPoint(bodyRect.getRight() - INPUT_PADDING - CONNECTOR_RADIUS,
@@ -176,8 +176,8 @@ NodeConnector* Node::findConnector(const string& str)
 {
   for (size_t i = 0; i < inputs.size(); ++i)
   {
-    if (inputs[i].name == str)
-      return &inputs[i];
+    if (inputs[i]->name == str)
+      return inputs[i];
   }
   return nullptr;
 }
@@ -200,9 +200,9 @@ void Node::translate(const ofPoint& delta)
   headingRect.translate(delta);
 
   for (auto& input : inputs)
-    input.pt += delta;
+    input->pt += delta;
 
-  output.pt += delta;
+  output->pt += delta;
 }
 
 //--------------------------------------------------------------
@@ -220,34 +220,34 @@ void Node::draw()
 
   // Draw inputs
   int y = bodyRect.y + INPUT_PADDING;
-  for (const NodeConnector& input : inputs)
+  for (const NodeConnector* input : inputs)
   {
     // each input gets its own rect, and we draw the text centered inside that
     ofRectangle rect(ofPoint(bodyRect.x + circleInset, y), bodyRect.getWidth(), INPUT_HEIGHT);
     ofSetColor(0);
-    drawStringCentered(input.name, g_App->_font, rect, false, true);
+    drawStringCentered(input->name, g_App->_font, rect, false, true);
 
     ofPoint pt(bodyRect.x + INPUT_PADDING + CONNECTOR_RADIUS, y + INPUT_HEIGHT / 2);
     drawOutlineCircle(
-        pt, CONNECTOR_RADIUS, input.cons.empty() ? ofColor(140) : ofColor(80, 200, 80));
+        pt, CONNECTOR_RADIUS, input->cons.empty() ? ofColor(140) : ofColor(80, 200, 80));
 
     y += INPUT_HEIGHT + INPUT_PADDING;
   }
 
   // Draw output
-  if (output.type != ParamType::Void)
+  if (output->type != ParamType::Void)
   {
     int y = bodyRect.y + INPUT_PADDING;
-    ofRectangle strRect = g_App->_font.getStringBoundingBox(output.name, 0, 0);
+    ofRectangle strRect = g_App->_font.getStringBoundingBox(output->name, 0, 0);
 
     // right aligned..
     int dy = (INPUT_HEIGHT - strRect.height) / 2;
     int strX = bodyRect.getRight() - circleInset - strRect.getWidth();
-    g_App->_font.drawString(output.name, strX, y + INPUT_HEIGHT - dy);
+    g_App->_font.drawString(output->name, strX, y + INPUT_HEIGHT - dy);
 
     ofPoint pt(bodyRect.getRight() - INPUT_PADDING - CONNECTOR_RADIUS, y + INPUT_HEIGHT / 2);
     drawOutlineCircle(
-        pt, CONNECTOR_RADIUS, output.cons.empty() ? ofColor(140) : ofColor(80, 200, 80));
+        pt, CONNECTOR_RADIUS, output->cons.empty() ? ofColor(140) : ofColor(80, 200, 80));
   }
 
   if (selected)
@@ -272,9 +272,9 @@ void Node::drawConnections()
 {
   ofSetLineWidth(3);
   ofSetColor(100, 100, 200);
-  for (const NodeConnector* con : output.cons)
+  for (const NodeConnector* con : output->cons)
   {
-    ofDrawLine(output.pt, con->pt);
+    ofDrawLine(output->pt, con->pt);
   }
 
   ofSetLineWidth(1);
@@ -303,24 +303,6 @@ bool validConnection(const NodeConnector* a, const NodeConnector* b)
     return false;
 
   return true;
-}
-
-//--------------------------------------------------------------
-template <typename T,
-    typename Ret =
-        conditional<is_const<T>::value, const ofAbstractParameter*, ofAbstractParameter*>::type>
-Ret getParamBase(T& p)
-{
-  return nullptr;
-  // switch (p.type)
-  //{
-  //  case ParamType::Bool: return &p.value.bValue;
-  //  case ParamType::Float: return &p.value.fValue;
-  //  case ParamType::Vec2: return &p.value.vValue;
-  //  case ParamType::Color: return &p.value.cValue;
-  //  case ParamType::String: return &p.value.sValue;
-  //  default: return nullptr;
-  //}
 }
 
 //--------------------------------------------------------------
@@ -365,16 +347,33 @@ static string paramTypeToString(const Node::Param& p)
 //--------------------------------------------------------------
 static string paramValueToString(const Node::Param& p)
 {
-  const ofAbstractParameter* ap = getParamBase(p);
-  return ap ? ap->toString() : "";
+  ostringstream ss;
+  switch (p.type)
+  {
+    case ParamType::Bool: ss << p.value.bValue; break;
+    case ParamType::Float: ss << p.value.fValue.value; break;
+    case ParamType::Vec2: ss << p.value.vValue.value; break;
+    case ParamType::Color: ss << p.value.cValue; break;
+    case ParamType::String: ss << p.value.sValue; break;
+    default: return "";
+  }
+
+  return ss.str();
 }
 
 //--------------------------------------------------------------
 static void stringToParamValue(const string& str, Node::Param* p)
 {
-  ofAbstractParameter* ap = getParamBase(*p);
-  if (ap)
-    ap->fromString(str);
+  istringstream ss(str);
+  switch (p->type)
+  {
+    case ParamType::Bool: ss >> p->value.bValue; break;
+    case ParamType::Float: ss >> p->value.fValue.value; break;
+    case ParamType::Vec2: ss >> p->value.vValue.value; break;
+    case ParamType::Color: ss >> p->value.cValue; break;
+    case ParamType::String: ss >> p->value.sValue; break;
+    default: break;
+  }
 }
 
 //--------------------------------------------------------------
@@ -425,7 +424,7 @@ void ofApp::saveToFile(const string& filename)
     for (Node* node : _nodes)
     {
       // NB: just the outputs are saved
-      for (NodeConnector* con : node->output.cons)
+      for (NodeConnector* con : node->output->cons)
       {
         if (Node* p = con->parent)
         {
@@ -516,8 +515,8 @@ void ofApp::loadFromFile(const string& filename)
 
       if (fromNode && toNode && con)
       {
-        fromNode->output.cons.push_back(con);
-        con->cons.push_back(&fromNode->output);
+        fromNode->output->cons.push_back(con);
+        con->cons.push_back(fromNode->output);
       }
     }
     s.popTag();
@@ -638,7 +637,7 @@ void createGraph(const vector<Node*> nodes, vector<Node*>* sortedNodes)
   for (GraphNode& g : graph)
   {
     Node* node = g.node;
-    for (NodeConnector* con : node->output.cons)
+    for (NodeConnector* con : node->output->cons)
     {
       g.outEdges.push_back(con->parent);
       fnGraphFindNode(con->parent)->inEdges.push_back(node);
@@ -729,9 +728,9 @@ void ofApp::generateGraph()
   // check that each node has its inputs filled
   for (Node* node : _nodes)
   {
-    for (NodeConnector& con : node->inputs)
+    for (NodeConnector* con : node->inputs)
     {
-      if (!con.parent)
+      if (!con->parent)
       {
         printf("Node: %s missing input\n", node->name.c_str());
         return;
@@ -766,7 +765,7 @@ void ofApp::generateGraph()
     texturePool.pop();
 
     // Inc the ref count on the output texture for each input node that uses it
-    nodeOutRefCount[node] = (int)node->output.cons.size();
+    nodeOutRefCount[node] = (int)node->output->cons.size();
 
     // write the template id
     w.write((u8)_nodeTemplates[node->name]->id);
@@ -775,9 +774,9 @@ void ofApp::generateGraph()
     // Set up texture inputs
     w.write((u8)node->inputs.size());
 
-    for (const NodeConnector& con : node->inputs)
+    for (const NodeConnector* con : node->inputs)
     {
-      u8 inputTextureId = nodeOutTexture[con.parent];
+      u8 inputTextureId = nodeOutTexture[con->parent];
       w.write(inputTextureId);
     }
 
@@ -835,9 +834,9 @@ void ofApp::generateGraph()
     w.writeAt(cbufferSize, cbufferSizePos);
 
     // dec the ref count on any used textures, and return any that have a zero count
-    for (NodeConnector& con : node->inputs)
+    for (NodeConnector* con : node->inputs)
     {
-      Node* node = con.parent;
+      Node* node = con->parent;
       if (--nodeOutRefCount[node] == 0)
       {
         texturePool.push(nodeOutTexture[node]);
@@ -1074,7 +1073,6 @@ void ofApp::keyReleased(int key)
     }
     clearSelection();
     _mode = Mode::Default;
-    _curEditingNode = nullptr;
   }
 }
 
@@ -1106,10 +1104,9 @@ void ofApp::dragEvent(ofDragInfo dragInfo)
 //--------------------------------------------------------------
 Node* ofApp::nodeAtPoint(const ofPoint& pt)
 {
-  // NB, only select if the point is inside the header
   for (auto& node : _nodes)
   {
-    if (node->headingRect.inside(pt))
+    if (node->bodyRect.inside(pt) || node->headingRect.inside(pt))
       return node;
   }
 
@@ -1169,18 +1166,18 @@ NodeConnector* ofApp::connectorAtPoint(const ofPoint& pt)
 
   for (auto& node : _nodes)
   {
-    for (auto& input : node->inputs)
+    for (NodeConnector* input : node->inputs)
     {
-      if (insideConnector(input.pt))
+      if (insideConnector(input->pt))
       {
-        return &input;
+        return input;
       }
     }
 
     // check the output node
-    if (node->output.type != ParamType::Void && insideConnector(node->output.pt))
+    if (node->output->type != ParamType::Void && insideConnector(node->output->pt))
     {
-      return &node->output;
+      return node->output;
     }
   }
 
@@ -1192,22 +1189,48 @@ void ofApp::mousePressed(int x, int y, int button)
 {
   ofPoint pt(x, y);
 
+  // If the mouse is over one of the menus, just ignore the mouse pressed
+  if (ImGui::IsMouseHoveringAnyWindow())
+    return;
+
   if (_mode == Mode::Create)
   {
     const NodeTemplate* t = _nodeTemplates[_createType];
     Node* node = new Node(t, pt, _nextNodeId++);
+    _curEditingNode = node;
     _nodes.push_back(node);
     resetState();
     return;
   }
 
+  _curEditingNode = nullptr;
+
   // check if we clicked on any node connectors
-  _startConnector = connectorAtPoint(pt);
-  if (_startConnector)
+  NodeConnector* con = connectorAtPoint(pt);
+  if (con)
   {
-    _endConnector = nullptr;
-    _mode = Mode::Connecting;
-    return;
+    // ctrl-click to remove any connections
+    if (ofKeyControl())
+    {
+      // remove the connection from each of its connections
+      for (NodeConnector* other : con->cons)
+      {
+        other->cons.erase(
+          remove_if(other->cons.begin(), other->cons.end(), [=](NodeConnector* cand) { return cand == con; }),
+          other->cons.end());
+      }
+
+      // clear the connection's cons
+      con->cons.clear();
+      return;
+    }
+    else
+    {
+      _startConnector = con;
+      _endConnector = nullptr;
+      _mode = Mode::Connecting;
+      return;
+    }
   }
 
   // if nothing was clicked, clear the selection

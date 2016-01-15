@@ -30,7 +30,9 @@ _win32/My*
 *.etl
 dist/*
 obj/Debug/*
-nodr_debug.*
+obj/Release/*
 *.opendb
 *.db
 bin/*.dll
+bin/nodr_debug.*
+bin/nodr.*
