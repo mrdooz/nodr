@@ -1,5 +1,3 @@
-ofxGui
-ofxGuiExtended
+ofxImGui
 ofxNetwork
-ofxOsc
 ofxXmlSettings

@@ -32,3 +32,5 @@ dist/*
 obj/Debug/*
 nodr_debug.*
 *.opendb
+*.db
+bin/*.dll

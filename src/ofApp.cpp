@@ -14,6 +14,7 @@ static const int INPUT_HEIGHT = 14;
 static const int INPUT_PADDING = 4;
 static const int CONNECTOR_RADIUS = 5;
 static const int MIN_NODE_WIDTH = 100;
+static const ImVec2 BUTTON_SIZE(200, 20);
 
 static ofApp* g_App;
 
@@ -135,9 +136,9 @@ void NodeTemplate::calcTemplateRectangle(ofTrueTypeFont& font)
 }
 
 //--------------------------------------------------------------
-Node::Node(const NodeTemplate& t, const ofPoint& pt, int id) : name(t.name), id(id)
+Node::Node(const NodeTemplate* t, const ofPoint& pt, int id) : name(t->name), id(id)
 {
-  bodyRect = t.rect;
+  bodyRect = t->rect;
   bodyRect.translate(pt);
 
   headingRect = bodyRect;
@@ -146,9 +147,9 @@ Node::Node(const NodeTemplate& t, const ofPoint& pt, int id) : name(t.name), id(
   headingRect.translateY(-h);
 
   int y = bodyRect.y + INPUT_PADDING;
-  for (size_t i = 0; i < t.inputs.size(); ++i)
+  for (size_t i = 0; i < t->inputs.size(); ++i)
   {
-    const NodeTemplate::NodeParam& input = t.inputs[i];
+    const NodeTemplate::NodeParam& input = t->inputs[i];
     inputs.push_back(NodeConnector(input.name,
         input.type,
         NodeConnector::Dir::Input,
@@ -157,13 +158,13 @@ Node::Node(const NodeTemplate& t, const ofPoint& pt, int id) : name(t.name), id(
     y += INPUT_HEIGHT + INPUT_PADDING;
   }
 
-  for (const NodeTemplate::NodeParam& param : t.params)
+  for (const NodeTemplate::NodeParam& param : t->params)
   {
     params.push_back(Node::Param(param.name, param.type));
   }
 
   output = NodeConnector("out",
-      t.output,
+      t->output,
       NodeConnector::Dir::Output,
       ofPoint(bodyRect.getRight() - INPUT_PADDING - CONNECTOR_RADIUS,
                              bodyRect.y + INPUT_PADDING + INPUT_HEIGHT / 2),
@@ -310,15 +311,16 @@ template <typename T,
         conditional<is_const<T>::value, const ofAbstractParameter*, ofAbstractParameter*>::type>
 Ret getParamBase(T& p)
 {
-  switch (p.type)
-  {
-    case ParamType::Bool: return &p.value.bValue;
-    case ParamType::Float: return &p.value.fValue;
-    case ParamType::Vec2: return &p.value.vValue;
-    case ParamType::Color: return &p.value.cValue;
-    case ParamType::String: return &p.value.sValue;
-    default: return nullptr;
-  }
+  return nullptr;
+  // switch (p.type)
+  //{
+  //  case ParamType::Bool: return &p.value.bValue;
+  //  case ParamType::Float: return &p.value.fValue;
+  //  case ParamType::Vec2: return &p.value.vValue;
+  //  case ParamType::Color: return &p.value.cValue;
+  //  case ParamType::String: return &p.value.sValue;
+  //  default: return nullptr;
+  //}
 }
 
 //--------------------------------------------------------------
@@ -471,7 +473,7 @@ void ofApp::loadFromFile(const string& filename)
       float x, y;
       getAttributes(s, "Pos", 0, "x", &x, "y", &y);
 
-      const NodeTemplate& t = _nodeTemplates[name];
+      const NodeTemplate* t = _nodeTemplates[name];
       Node* node = new Node(t, ofPoint(x, y), id);
 
       if (s.tagExists("Params") && s.pushTag("Params"))
@@ -525,38 +527,6 @@ void ofApp::loadFromFile(const string& filename)
 }
 
 //--------------------------------------------------------------
-void ofApp::fileMenuCallback(const void* sender)
-{
-  string filename;
-  if (sender == _resetButton)
-  {
-    resetTexture();
-  }
-  else if (sender == _loadButton)
-  {
-    if (showFileDialog(true, &filename))
-    {
-      loadFromFile(filename);
-    }
-  }
-  else if (sender == _saveButton)
-  {
-    if (showFileDialog(false, &filename))
-    {
-      saveToFile(filename);
-    }
-  }
-}
-
-//--------------------------------------------------------------
-void ofApp::setupCreateNode(const void* sender)
-{
-  string type = _buttonToType[sender];
-  _createType = type;
-  _mode = Mode::Create;
-}
-
-//--------------------------------------------------------------
 ofApp::ofApp()
 {
   g_App = this;
@@ -570,21 +540,17 @@ ofApp::~ofApp()
     delete node;
   }
   _nodes.clear();
+
+  for (auto& kv : _nodeTemplates)
+  {
+    delete kv.second;
+  }
+  _nodeTemplates.clear();
 }
 
 //--------------------------------------------------------------
 void ofApp::loadTemplates()
 {
-  auto& fnAddButton = [this](
-      ofxPanel* panel, vector<ofxMinimalButton*>* buttons, const string& type) {
-    ofxMinimalButton* b = new ofxMinimalButton();
-    b->setup(type);
-    b->addListener(this, &ofApp::setupCreateNode);
-    buttons->push_back(b);
-    panel->add(b);
-    _buttonToType[b] = type;
-  };
-
   ofxXmlSettings s;
   if (s.loadFile("node_templates.xml"))
   {
@@ -593,11 +559,6 @@ void ofApp::loadTemplates()
     for (int i = 0; i < numCategories; ++i)
     {
       string categoryName = s.getAttribute("Category", "name", "", i);
-      ofxPanel* panel = new ofxPanel();
-      panel->setup(categoryName);
-      _categoryPanels.push_back(panel);
-      _mainPanel.add(panel);
-
       s.pushTag("Category", i);
       int numTemplates = s.getNumTags("NodeTemplate");
       for (int j = 0; j < numTemplates; ++j)
@@ -607,11 +568,11 @@ void ofApp::loadTemplates()
         getAttributes(s, "NodeTemplate", j, "name", &templateName, "id", &id);
         s.pushTag("NodeTemplate", j);
 
-        fnAddButton(panel, &_categoryButtons, templateName);
-
-        NodeTemplate& t = _nodeTemplates[templateName];
-        t.name = templateName;
-        t.id = id;
+        NodeTemplate* t = new NodeTemplate();
+        _nodeTemplates[templateName] = t;
+        _templatesByCategory[categoryName].push_back(t);
+        t->name = templateName;
+        t->id = id;
 
         if (s.tagExists("Inputs") && s.pushTag("Inputs"))
         {
@@ -620,7 +581,7 @@ void ofApp::loadTemplates()
           {
             string inputName = s.getAttribute("Input", "name", "", aa);
             ParamType inputType = stringToParamType(s.getAttribute("Input", "type", "", aa));
-            t.inputs.push_back(NodeTemplate::NodeParam{inputName, inputType});
+            t->inputs.push_back(NodeTemplate::NodeParam{inputName, inputType});
           }
           s.popTag();
         }
@@ -632,13 +593,13 @@ void ofApp::loadTemplates()
           {
             string paramName = s.getAttribute("Param", "name", "", aa);
             ParamType paramType = stringToParamType(s.getAttribute("Param", "type", "", aa));
-            t.params.push_back(NodeTemplate::NodeParam{paramName, paramType});
+            t->params.push_back(NodeTemplate::NodeParam{paramName, paramType});
           }
           s.popTag();
         }
 
-        t.output = stringToParamType(s.getAttribute("Output", "type", ""));
-        t.calcTemplateRectangle(_font);
+        t->output = stringToParamType(s.getAttribute("Output", "type", ""));
+        t->calcTemplateRectangle(_font);
 
         s.popTag();
       }
@@ -754,17 +715,13 @@ struct BinaryWriter
     memcpy(buf.data() + pos, (const void*)&v, sizeof(T));
   }
 
-
-  int getPos() const
-  {
-    return (int)buf.size();
-  }
+  int getPos() const { return (int)buf.size(); }
 
   vector<u8> buf;
 };
 
 //--------------------------------------------------------------
-void ofApp::onGenerateCallback(const void* sender)
+void ofApp::generateGraph()
 {
   vector<Node*> sorted;
   createGraph(_nodes, &sorted);
@@ -812,7 +769,7 @@ void ofApp::onGenerateCallback(const void* sender)
     nodeOutRefCount[node] = (int)node->output.cons.size();
 
     // write the template id
-    w.write((u8)_nodeTemplates[node->name].id);
+    w.write((u8)_nodeTemplates[node->name]->id);
     w.write(outputTexture);
 
     // Set up texture inputs
@@ -857,19 +814,19 @@ void ofApp::onGenerateCallback(const void* sender)
 
       if (param.type == ParamType::Float)
       {
-        w.write(param.value.fValue.get());
+        w.write(param.value.fValue.value);
       }
       else if (param.type == ParamType::Vec2)
       {
-        w.write(param.value.vValue.get().x);
-        w.write(param.value.vValue.get().y);
+        w.write(param.value.vValue.value.x);
+        w.write(param.value.vValue.value.y);
       }
       else if (param.type == ParamType::Color)
       {
-        w.write((float)param.value.cValue.get().r / 255.f);
-        w.write((float)param.value.cValue.get().g / 255.f);
-        w.write((float)param.value.cValue.get().b / 255.f);
-        w.write((float)param.value.cValue.get().a / 255.f);
+        w.write((float)param.value.cValue.r / 255.f);
+        w.write((float)param.value.cValue.g / 255.f);
+        w.write((float)param.value.cValue.b / 255.f);
+        w.write((float)param.value.cValue.a / 255.f);
       }
       cbufferSize += s;
       curOffset = (curOffset + s) % 4;
@@ -895,12 +852,12 @@ void ofApp::onGenerateCallback(const void* sender)
   FILE* ff = fopen("texture.dat", "wb");
   fwrite(w.buf.data(), 1, (int)w.buf.size(), ff);
   fclose(ff);
-
 }
 
 //--------------------------------------------------------------
 void ofApp::setup()
 {
+  _imgui.setup();
   ofSetVerticalSync(true);
   ofGetMainLoop()->setEscapeQuitsLoop(false);
 
@@ -908,28 +865,7 @@ void ofApp::setup()
   _font.setLineHeight(FONT_HEIGHT);
   _font.setLetterSpacing(1.037f);
 
-  _mainPanel.setup("TextureGen 0.1");
-
-  _resetButton = new ofxMinimalButton("Reset");
-  _resetButton->addListener(this, &ofApp::fileMenuCallback);
-
-  _loadButton = new ofxMinimalButton("Load");
-  _loadButton->addListener(this, &ofApp::fileMenuCallback);
-
-  _saveButton = new ofxMinimalButton("Save");
-  _saveButton->addListener(this, &ofApp::fileMenuCallback);
-
-  _generatorButton = new ofxMinimalButton("Generate");
-  _generatorButton->addListener(this, &ofApp::onGenerateCallback);
-
-  _mainPanel.add(_resetButton);
-  _mainPanel.add(_loadButton);
-  _mainPanel.add(_saveButton);
-  _mainPanel.add(_generatorButton);
-
   loadTemplates();
-
-  _mainPanel.add(&_varPanel);
 }
 
 //--------------------------------------------------------------
@@ -945,9 +881,126 @@ void ofApp::update()
 //--------------------------------------------------------------
 void ofApp::draw()
 {
+  _imgui.begin();
+
+  ImGui::Begin("TextureGen 0.1", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+
+  if (ImGui::Button("Reset", BUTTON_SIZE))
+  {
+    resetTexture();
+  }
+
+  if (ImGui::Button("Load", BUTTON_SIZE))
+  {
+    string filename;
+    if (showFileDialog(true, &filename))
+    {
+      loadFromFile(filename);
+    }
+  }
+
+  if (ImGui::Button("Save", BUTTON_SIZE))
+  {
+    string filename;
+    if (showFileDialog(false, &filename))
+    {
+      saveToFile(filename);
+    }
+  }
+
+  if (ImGui::Button("Generate", BUTTON_SIZE))
+  {
+    generateGraph();
+  }
+
+  for (const string& cat : {"Memory", "Generators", "Modifiers"})
+  {
+    if (ImGui::CollapsingHeader(cat.c_str(), NULL, true, true))
+    {
+      for (const NodeTemplate* t : _templatesByCategory[cat])
+      {
+        if (_mode == Mode::Create && _createType == t->name)
+        {
+          ImGui::Text(t->name.c_str());
+        }
+        else
+        {
+          if (ImGui::Button(t->name.c_str(), BUTTON_SIZE))
+          {
+            _mode = Mode::Create;
+            _createType = t->name;
+          }
+        }
+      }
+    }
+  }
+  ImGui::End();
+
+  ImGui::Begin(
+      "Parameters", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse);
+  if (_curEditingNode)
+  {
+    for (Node::Param& p : _curEditingNode->params)
+    {
+      const char* name = p.name.c_str();
+      switch (p.type)
+      {
+        case ParamType::Bool: ImGui::Checkbox(p.name.c_str(), &p.value.bValue); break;
+        case ParamType::Float:
+        {
+          if (p.value.fValue.flags & PARAM_FLAG_HAS_MIN_MAX)
+          {
+            ImGui::SliderFloat(
+                name, &p.value.fValue.value, p.value.fValue.minValue, p.value.fValue.maxValue);
+          }
+          else
+          {
+            ImGui::InputFloat(name, &p.value.fValue.value);
+          }
+          break;
+        }
+
+        case ParamType::Vec2:
+        {
+          if (p.value.vValue.flags & PARAM_FLAG_HAS_MIN_MAX)
+          {
+            ImGui::SliderFloat2(name,
+                p.value.vValue.value.getPtr(),
+                p.value.vValue.minValue,
+                p.value.vValue.maxValue);
+          }
+          else
+          {
+            ImGui::InputFloat2(name, p.value.vValue.value.getPtr());
+          }
+          break;
+        }
+        case ParamType::Color: ImGui::ColorEdit4(p.name.c_str(), &p.value.cValue.r); break;
+        case ParamType::Texture: break;
+        case ParamType::String:
+        {
+          const int BUF_SIZE = 64;
+          char buf[BUF_SIZE + 1];
+          size_t len = min(BUF_SIZE, (int)p.value.sValue.size());
+          memcpy(buf, p.value.sValue.c_str(), len);
+          buf[len] = 0;
+          if (ImGui::InputText(p.name.c_str(), buf, BUF_SIZE))
+            p.value.sValue.assign(buf);
+          break;
+        }
+        default: break;
+      }
+    }
+  }
+  else
+  {
+    ImGui::TextUnformatted("Nothing selected..");
+  }
+  ImGui::End();
+
   ofBackgroundGradient(ofColor::white, ofColor::gray);
 
-  _mainPanel.draw();
+  //_mainPanel.draw();
 
   for (auto& node : _nodes)
   {
@@ -978,6 +1031,10 @@ void ofApp::draw()
     }
     ofSetLineWidth(1);
   }
+
+  // ImGui::ShowTestWindow();
+
+  _imgui.end();
 }
 
 //--------------------------------------------------------------
@@ -1017,6 +1074,7 @@ void ofApp::keyReleased(int key)
     }
     clearSelection();
     _mode = Mode::Default;
+    _curEditingNode = nullptr;
   }
 }
 
@@ -1136,7 +1194,7 @@ void ofApp::mousePressed(int x, int y, int button)
 
   if (_mode == Mode::Create)
   {
-    const NodeTemplate& t = _nodeTemplates[_createType];
+    const NodeTemplate* t = _nodeTemplates[_createType];
     Node* node = new Node(t, pt, _nextNodeId++);
     _nodes.push_back(node);
     resetState();
@@ -1169,7 +1227,7 @@ void ofApp::mousePressed(int x, int y, int button)
     if (!ofKeyControl())
     {
       clearSelection();
-      initNodeParameters(node);
+      _curEditingNode = node;
     }
 
     node->selected = true;
@@ -1215,26 +1273,4 @@ void ofApp::abortAction()
 void ofApp::resetState()
 {
   _mode = Mode::Default;
-}
-
-//--------------------------------------------------------------
-void ofApp::initNodeParameters(Node* node)
-{
-  _varPanel.clear();
-  char buf[256];
-  sprintf(buf, "%s vars", node->name.c_str());
-  _varPanel.setup(buf);
-
-  for (Node::Param& p : node->params)
-  {
-    switch (p.type)
-    {
-      case ParamType::Bool: _varPanel.add(p.value.bValue); break;
-      case ParamType::Float: _varPanel.add(p.value.fValue); break;
-      case ParamType::Vec2: _varPanel.add(p.value.vValue); break;
-      case ParamType::String: _varPanel.add(p.value.sValue); break;
-      case ParamType::Color: _varPanel.add(p.value.cValue); break;
-      default: break;
-    }
-  }
 }

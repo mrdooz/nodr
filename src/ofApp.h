@@ -1,8 +1,7 @@
 #pragma once
 
 #include "ofMain.h"
-#include <ofxGui.h>
-#include <ofxGuiExtended.h>
+#include <ofxImGui.h>
 
 enum class ParamType
 {
@@ -15,13 +14,37 @@ enum class ParamType
   String,
 };
 
+struct ParamColor
+{
+  float r, g, b, a;
+};
+
+enum ParamFlag
+{
+  PARAM_FLAG_HAS_MIN_MAX = 0x1,
+};
+
+struct ParamFloat
+{
+  uint32_t flags = 0;
+  float value = 0;
+  float minValue, maxValue;
+};
+
+struct ParamVec2
+{
+  uint32_t flags = 0;
+  ofVec2f value = ofVec2f(0,0);
+  float minValue, maxValue;
+};
+
 struct ParamValue
 {
-  ofParameter<float> fValue;
-  ofParameter<ofVec2f> vValue;
-  ofParameter<ofColor> cValue;
-  ofParameter<bool> bValue;
-  ofParameter<string> sValue;
+  ParamFloat fValue;
+  ParamVec2 vValue;
+  ParamColor cValue;
+  bool bValue;
+  string sValue;
 };
 
 // Templates are the descriptions of the node types
@@ -41,15 +64,6 @@ struct NodeTemplate
   ParamType output;
   int id;
   ofRectangle rect;
-};
-
-enum class Mode
-{
-  Default,
-  Create,
-  DragStart,
-  Dragging,
-  Connecting,
 };
 
 struct Node;
@@ -82,24 +96,13 @@ struct Node
   {
     Param(const string& name, ParamType type) : name(name), type(type)
     {
-      switch (type)
-      {
-        case ParamType::Void: break;
-        case ParamType::Bool: value.bValue.setName(name); break;
-        case ParamType::Float: value.fValue.set(name, 0, 0, 100); break;
-        case ParamType::Vec2: value.vValue.set(name, ofVec2f(0,0), ofVec2f(-1, -1), ofVec2f(1, 1)); break;
-        case ParamType::Color: value.cValue.set(name, ofColor(100), ofColor(0), ofColor(255)); break;
-        case ParamType::String: value.sValue.setName(name); break;
-        case ParamType::Texture: break;
-        default: break;
-      }
     }
     string name;
     ParamType type;
     ParamValue value;
   };
 
-  Node(const NodeTemplate& t, const ofPoint& pt, int it);
+  Node(const NodeTemplate* t, const ofPoint& pt, int it);
   void draw();
   void drawConnections();
   void translate(const ofPoint& delta);
@@ -141,9 +144,6 @@ public:
   void dragEvent(ofDragInfo dragInfo);
   void gotMessage(ofMessage msg);
 
-  void setupCreateNode(const void* sender);
-  void fileMenuCallback(const void* sender);
-
   void clearSelection();
 
   Node* nodeAtPoint(const ofPoint& pt);
@@ -154,31 +154,22 @@ public:
   void loadFromFile(const string& filename);
   void loadTemplates();
 
-  void initNodeParameters(Node* node);
-
   void resetTexture();
-
-  void onGenerateCallback(const void* sender);
 
   NodeConnector* connectorAtPoint(const ofPoint& pt);
   Node* nodeById(int id);
 
-  ofxPanel _mainPanel;
-  vector<ofxPanel*> _categoryPanels;
-  vector<ofxMinimalButton*> _categoryButtons;
-  ofxPanel _varPanel;
+  void generateGraph();
 
-  unordered_map<const void*, string> _buttonToType;
+  enum class Mode
+  {
+    Default,
+    Create,
+    DragStart,
+    Dragging,
+    Connecting,
+  };
 
-  unordered_map<string, NodeTemplate> _nodeTemplates;
-
-  vector<Node*> _nodes;
-  vector<Node*> _selectedNodes;
-
-  ofTrueTypeFont _font;
-
-  // NB: these could be made into a union, but this seems to require everything to have default
-  // ctors, which I don't really want..
   struct
   {
     ofPoint _dragStart;
@@ -194,13 +185,18 @@ public:
     NodeConnector* _endConnector;
   };
 
-  ofxMinimalButton* _loadButton = nullptr;
-  ofxMinimalButton* _saveButton = nullptr;
-  ofxMinimalButton* _resetButton = nullptr;
+  unordered_map<string, NodeTemplate*> _nodeTemplates;
+  unordered_map<string, vector<NodeTemplate*>> _templatesByCategory;
 
-  ofxMinimalButton* _generatorButton = nullptr;
+  vector<Node*> _nodes;
+  vector<Node*> _selectedNodes;
+  Node* _curEditingNode = nullptr;
 
-  Mode _mode;
+  ofTrueTypeFont _font;
+
+  Mode _mode = Mode::Default;
 
   int _nextNodeId = 1;
+
+  ofxImGui _imgui;
 };

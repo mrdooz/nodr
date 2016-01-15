@@ -53,7 +53,7 @@
         </NodeTemplate>
 
     </Category>
-    <Category name="Modifers">
+    <Category name="Modifiers">
 
         <NodeTemplate name="Modulate" id="64">
             <Inputs>
