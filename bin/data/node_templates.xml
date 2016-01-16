@@ -2,7 +2,7 @@
     <Category name="Memory">
         <NodeTemplate name="Load" id="01">
             <Params>
-                <Param name="name" type="string"/>
+                <Param name="aux" type="int" minValue="0" maxValue="15"/>
             </Params>
             <Output type="texture"/>
         </NodeTemplate>
@@ -12,9 +12,14 @@
                 <Input name="sink" type="texture"/>
             </Inputs>
             <Params>
-                <Param name="final" type="bool"/>
-                <Param name="name" type="string"/>
+                <Param name="aux" type="int" minValue="0" maxValue="15"/>
             </Params>
+        </NodeTemplate>
+
+        <NodeTemplate name="Final" id="03">
+            <Inputs>
+                <Input name="sink" type="texture"/>
+            </Inputs>
         </NodeTemplate>
     </Category>
 
@@ -28,17 +33,17 @@
 
         <NodeTemplate name="RadialGradient" id="17">
             <Params>
-                <Param name="center" type="vec2"/>
-                <Param name="power" type="float"/>
+                <Param name="center" type="vec2" minValue="-1" maxValue="1"/>
+                <Param name="power" type="float" minValue="0.1" maxValue="100"/>
             </Params>
             <Output type="texture"/>
         </NodeTemplate>
 
         <NodeTemplate name="LinearGradient" id="18">
             <Params>
-                <Param name="pt0" type="vec2"/>
-                <Param name="pt1" type="vec2"/>
-                <Param name="power" type="float"/>
+                <Param name="pt0" type="vec2" minValue="-1" maxValue="1"/>
+                <Param name="pt1" type="vec2" minValue="-1" maxValue="1"/>
+                <Param name="power" type="float" minValue="0.1" maxValue="100"/>
             </Params>
             <Output type="texture"/>
         </NodeTemplate>

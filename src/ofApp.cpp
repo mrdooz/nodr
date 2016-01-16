@@ -3,6 +3,7 @@
 #include <commdlg.h>
 #include <math.h>
 #include <ofxXmlSettings.h>
+#include <unordered_set>
 
 //--------------------------------------------------------------
 static const int FONT_HEIGHT = 12;
@@ -14,7 +15,11 @@ static const int INPUT_HEIGHT = 14;
 static const int INPUT_PADDING = 4;
 static const int CONNECTOR_RADIUS = 5;
 static const int MIN_NODE_WIDTH = 100;
-static const ImVec2 BUTTON_SIZE(200, 20);
+static const int NUM_AUX_TEXTURES = 16;
+static const ImVec2 BUTTON_SIZE(225, 20);
+
+typedef uint8_t u8;
+typedef uint16_t u16;
 
 static ofApp* g_App;
 
@@ -160,7 +165,7 @@ Node::Node(const NodeTemplate* t, const ofPoint& pt, int id) : name(t->name), id
 
   for (const NodeTemplate::NodeParam& param : t->params)
   {
-    params.push_back(Node::Param(param.name, param.type));
+    params.push_back(Node::Param{ param.name, param.type, param.bounds });
   }
 
   output = new NodeConnector("out",
@@ -214,7 +219,15 @@ void Node::draw()
   // Draw heading
   drawOutlineRect(headingRect, 78, RECT_UPPER_ROUNDING, 0);
   ofSetColor(0);
-  drawStringCentered(name, g_App->_font, headingRect, true, true);
+  // for load and store nodes, include what texture they output too
+  string heading = name;
+  if (name == "Load" || name == "Store")
+  {
+    char buf[256];
+    sprintf(buf, "%s [%d]", name.c_str(), params[0].value.iValue.value);
+    heading = buf;
+  }
+  drawStringCentered(heading, g_App->_font, headingRect, true, true);
 
   int circleInset = CONNECTOR_RADIUS * 2 + 2 * INPUT_PADDING;
 
@@ -311,6 +324,9 @@ static ParamType stringToParamType(const string& str)
   if (str == "bool")
     return ParamType::Bool;
 
+  if (str == "int")
+    return ParamType::Int;
+
   if (str == "float")
     return ParamType::Float;
 
@@ -335,6 +351,7 @@ static string paramTypeToString(const Node::Param& p)
   switch (p.type)
   {
     case ParamType::Bool: return "bool";
+    case ParamType::Int: return "int";
     case ParamType::Float: return "float";
     case ParamType::Vec2: return "vec2";
     case ParamType::Color: return "color";
@@ -351,6 +368,7 @@ static string paramValueToString(const Node::Param& p)
   switch (p.type)
   {
     case ParamType::Bool: ss << p.value.bValue; break;
+    case ParamType::Int: ss << p.value.iValue.value; break;
     case ParamType::Float: ss << p.value.fValue.value; break;
     case ParamType::Vec2: ss << p.value.vValue.value; break;
     case ParamType::Color: ss << p.value.cValue; break;
@@ -368,6 +386,7 @@ static void stringToParamValue(const string& str, Node::Param* p)
   switch (p->type)
   {
     case ParamType::Bool: ss >> p->value.bValue; break;
+    case ParamType::Int: ss >> p->value.iValue.value; break;
     case ParamType::Float: ss >> p->value.fValue.value; break;
     case ParamType::Vec2: ss >> p->value.vValue.value; break;
     case ParamType::Color: ss >> p->value.cValue; break;
@@ -588,11 +607,37 @@ void ofApp::loadTemplates()
         if (s.tagExists("Params") && s.pushTag("Params"))
         {
           int numParams = s.getNumTags("Param");
-          for (int aa = 0; aa < numParams; ++aa)
+          for (int paramIdx = 0; paramIdx < numParams; ++paramIdx)
           {
-            string paramName = s.getAttribute("Param", "name", "", aa);
-            ParamType paramType = stringToParamType(s.getAttribute("Param", "type", "", aa));
-            t->params.push_back(NodeTemplate::NodeParam{paramName, paramType});
+            string paramName = s.getAttribute("Param", "name", "", paramIdx);
+            ParamType paramType = stringToParamType(s.getAttribute("Param", "type", "", paramIdx));
+            NodeTemplate::NodeParam param{ paramName, paramType };
+
+            if (s.attributeExists("Param", "minValue", paramIdx)
+                && s.attributeExists("Param", "maxValue", paramIdx))
+            {
+              param.hasBounds = true;
+              param.bounds.flags = PARAM_FLAG_HAS_MIN_MAX;
+              if (paramType == ParamType::Int)
+              {
+                ParamInt& p = param.bounds.iValue;
+                getAttributes(s, "Param", paramIdx, "minValue", &p.minValue, "maxValue", &p.maxValue);
+                p.value = p.minValue;
+              }
+              else if (paramType == ParamType::Float)
+              {
+                ParamFloat& p = param.bounds.fValue;
+                getAttributes(s, "Param", paramIdx, "minValue", &p.minValue, "maxValue", &p.maxValue);
+                p.value = p.minValue;
+              }
+              else if (paramType == ParamType::Vec2)
+              {
+                ParamVec2& p = param.bounds.vValue;
+                getAttributes(s, "Param", paramIdx, "minValue", &p.minValue, "maxValue", &p.maxValue);
+                p.value = ofVec2f(p.minValue, p.minValue);
+              }
+            }
+            t->params.push_back(param);
           }
           s.popTag();
         }
@@ -608,7 +653,8 @@ void ofApp::loadTemplates()
   }
 }
 
-void createGraph(const vector<Node*> nodes, vector<Node*>* sortedNodes)
+//--------------------------------------------------------------
+bool ofApp::createGraph(const vector<Node*> nodes, vector<Node*>* sortedNodes)
 {
   // Create a graph from the nodes
   struct GraphNode
@@ -629,8 +675,16 @@ void createGraph(const vector<Node*> nodes, vector<Node*>* sortedNodes)
     return nullptr;
   };
 
+  // save all the load nodes, because we need to create a relationship between the loads and the stores
+  unordered_map<int, Node*> loadNodes;
+
   for (Node* node : nodes)
   {
+    if (node->name == "Load")
+    {
+      loadNodes[node->params[0].value.iValue.value] = node;
+    }
+
     graph.push_back(GraphNode{node});
   }
 
@@ -641,6 +695,15 @@ void createGraph(const vector<Node*> nodes, vector<Node*>* sortedNodes)
     {
       g.outEdges.push_back(con->parent);
       fnGraphFindNode(con->parent)->inEdges.push_back(node);
+    }
+
+    // if this is a store node, create dependencies on the load node
+    if (node->name == "Store")
+    {
+      int textureId = node->params[0].value.iValue.value;
+      if (!loadNodes.count(textureId))
+        return false;
+      fnGraphFindNode(loadNodes[textureId])->inEdges.push_back(node);
     }
   }
 
@@ -665,7 +728,7 @@ void createGraph(const vector<Node*> nodes, vector<Node*>* sortedNodes)
     if (!node)
     {
       // graph has cycles!
-      return;
+      return false;
     }
 
     // remove occurences of node from the other node's in-edges
@@ -686,17 +749,23 @@ void createGraph(const vector<Node*> nodes, vector<Node*>* sortedNodes)
 
     sortedNodes->push_back(node);
   }
+
+  // check that each node has its inputs filled
+  for (Node* node : _nodes)
+  {
+    for (NodeConnector* con : node->inputs)
+    {
+      if (!con->parent)
+      {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
-typedef uint8_t u8;
-typedef uint16_t u16;
-
-struct VmPrg
-{
-  u8 version = 1;
-  u8 texturesUsed = 0;
-};
-
+//--------------------------------------------------------------
 struct BinaryWriter
 {
   template <typename T>
@@ -716,34 +785,42 @@ struct BinaryWriter
 
   int getPos() const { return (int)buf.size(); }
 
-  vector<u8> buf;
+  vector<char> buf;
 };
 
+
 //--------------------------------------------------------------
-void ofApp::generateGraph()
+bool ofApp::generateGraph(vector<char>* buf)
 {
   vector<Node*> sorted;
-  createGraph(_nodes, &sorted);
+  if (!createGraph(_nodes, &sorted))
+    return false;
 
   // check that each node has its inputs filled
   for (Node* node : _nodes)
   {
     for (NodeConnector* con : node->inputs)
     {
-      if (!con->parent)
+      if (con->cons.empty())
       {
         printf("Node: %s missing input\n", node->name.c_str());
-        return;
+        return false;
       }
     }
   }
+
+  struct VmPrg
+  {
+    u8 version = 1;
+    u8 texturesUsed = 0;
+  };
 
   // For each OUT, we try to grab an existing texture - Create if needed
   // Textures are references counted - Initialized to # inputs, and decremented when each block
   // has been processed. When a ref hits zero, return the texture to the pool.
 
   stack<u8> texturePool;
-  u8 nextTextureId = 0;
+  u8 nextTextureId = NUM_AUX_TEXTURES;
 
   // Map to keep track of which texture id corresponds to each node's output
   unordered_map<Node*, int> nodeOutTexture;
@@ -754,103 +831,152 @@ void ofApp::generateGraph()
   VmPrg prg;
   w.write(prg);
 
+  u8 finalId = (u8)_nodeTemplates["Final"]->id;
+  u8 loadId = (u8)_nodeTemplates["Load"]->id;
+  u8 storeId = (u8)_nodeTemplates["Store"]->id;
+
   // create a command list for the texture
   for (Node* node : sorted)
   {
-    // create an output texture if needed
-    if (texturePool.empty())
-      texturePool.push(nextTextureId++);
+    u8 id = (u8)_nodeTemplates[node->name]->id;
+    u8 outputId = id;
 
-    u8 outputTexture = texturePool.top();
-    texturePool.pop();
+    // there are some special nodes:
+    // final - input: normal, output: hard-coded
+    // load  - input: hard-coded, output: normal
+    // store - input: normal, output: hard-coded 
 
-    // Inc the ref count on the output texture for each input node that uses it
-    nodeOutRefCount[node] = (int)node->output->cons.size();
+    // setup output texture
+    u8 outputTexture;
+    if (id == finalId)
+    {
+      // NB: both store and final are just loads, but with hard-coded outputs!
+      outputId = loadId;
+      outputTexture = (u8)0xff;
+    }
+    else if (id == storeId)
+    {
+      assert(node->params[0].name == "aux");
+      outputId = loadId;
+      outputTexture = (u8)node->params[0].value.iValue.value;
+    }
+    else
+    {
+      // create an output texture if needed
+      if (texturePool.empty())
+        texturePool.push(nextTextureId++);
 
-    // write the template id
-    w.write((u8)_nodeTemplates[node->name]->id);
+      outputTexture = texturePool.top();
+      texturePool.pop();
+
+      // Inc the ref count on the output texture for each input node that uses it
+      nodeOutRefCount[node] = (int)node->output->cons.size();
+      nodeOutTexture[node] = outputTexture;
+    }
+
+    // write the operation id and output texture
+    w.write(outputId);
     w.write(outputTexture);
 
-    // Set up texture inputs
-    w.write((u8)node->inputs.size());
-
-    for (const NodeConnector* con : node->inputs)
+    // setup input textures
+    if (id == loadId)
     {
-      u8 inputTextureId = nodeOutTexture[con->parent];
-      w.write(inputTextureId);
+      assert(node->params[0].name == "aux");
+      w.write((u8)1);
+      w.write((u8)node->params[0].value.iValue.value);
+    }
+    else
+    {
+      w.write((u8)node->inputs.size());
+      for (const NodeConnector* con : node->inputs)
+      {
+        u8 inputTextureId = nodeOutTexture[con->cons[0]->parent];
+        w.write(inputTextureId);
+      }
     }
 
-    u16 cbufferSize = 0;
-    int cbufferSizePos = w.getPos();
-    w.write(cbufferSize);
-
-    static unordered_map<ParamType, int> paramSize = {
-        {ParamType::Float, sizeof(float)},
-        {ParamType::Vec2, 2 * sizeof(float)},
-        {ParamType::Color, 4 * sizeof(float)},
-    };
-
-    // Write the parameters
-    // NB: because these are written as-is to constant buffers, we need to take care with
-    // aligning parameters on 32 bit boundaries
-    int curOffset = 0;
-    for (const Node::Param& param : node->params)
+    // load/store shouldn't have proper c-buffers
+    if (outputId == loadId)
     {
-      int s = paramSize[param.type];
-      if (s == 0)
-      {
-        assert(false);
-        // error: unknown type
-      }
-
-      if (curOffset + s > 4)
-      {
-        // Apply padding
-        for (int i = 0; i < (curOffset + s) % 4; ++i)
-          w.write(0.0f);
-        curOffset = 0;
-      }
-
-      if (param.type == ParamType::Float)
-      {
-        w.write(param.value.fValue.value);
-      }
-      else if (param.type == ParamType::Vec2)
-      {
-        w.write(param.value.vValue.value.x);
-        w.write(param.value.vValue.value.y);
-      }
-      else if (param.type == ParamType::Color)
-      {
-        w.write((float)param.value.cValue.r / 255.f);
-        w.write((float)param.value.cValue.g / 255.f);
-        w.write((float)param.value.cValue.b / 255.f);
-        w.write((float)param.value.cValue.a / 255.f);
-      }
-      cbufferSize += s;
-      curOffset = (curOffset + s) % 4;
+      u16 cbufferSize = 0;
+      w.write(cbufferSize);
     }
+    else
+    {
+      u16 cbufferSize = 0;
+      int cbufferSizePos = w.getPos();
+      w.write(cbufferSize);
 
-    w.writeAt(cbufferSize, cbufferSizePos);
+      static unordered_map<ParamType, int> paramSize = {
+        { ParamType::Float, sizeof(float) },
+        { ParamType::Vec2, 2 * sizeof(float) },
+        { ParamType::Color, 4 * sizeof(float) },
+      };
+
+      // Write the parameters
+      // NB: because these are written as-is to constant buffers, we need to take care with
+      // aligning parameters on 32 bit boundaries
+      int curOffset = 0;
+      for (const Node::Param& param : node->params)
+      {
+        int s = paramSize[param.type];
+        if (s == 0)
+        {
+          assert(false);
+          // error: unknown type
+        }
+
+        if (curOffset + s > 4)
+        {
+          // Apply padding
+          for (int i = 0; i < (curOffset + s) % 4; ++i)
+            w.write(0.0f);
+          curOffset = 0;
+        }
+
+        if (param.type == ParamType::Float)
+        {
+          w.write(param.value.fValue.value);
+        }
+        else if (param.type == ParamType::Vec2)
+        {
+          w.write(param.value.vValue.value.x);
+          w.write(param.value.vValue.value.y);
+        }
+        else if (param.type == ParamType::Color)
+        {
+          w.write(param.value.cValue.r);
+          w.write(param.value.cValue.g);
+          w.write(param.value.cValue.b);
+          w.write(param.value.cValue.a);
+        }
+        cbufferSize += s;
+        curOffset = (curOffset + s) % 4;
+      }
+
+      w.writeAt(cbufferSize, cbufferSizePos);
+    }
 
     // dec the ref count on any used textures, and return any that have a zero count
-    for (NodeConnector* con : node->inputs)
+    if (id != finalId && id != storeId)
     {
-      Node* node = con->parent;
-      if (--nodeOutRefCount[node] == 0)
+      for (NodeConnector* con : node->inputs)
       {
-        texturePool.push(nodeOutTexture[node]);
-        nodeOutRefCount.erase(node);
+        Node* node = con->parent;
+        if (--nodeOutRefCount[node] == 0)
+        {
+          texturePool.push(nodeOutTexture[node]);
+          nodeOutRefCount.erase(node);
+          nodeOutTexture.erase(node);
+        }
       }
     }
   }
 
-  // write # textures used
+  // copy out the generated texture
   ((VmPrg*)w.buf.data())->texturesUsed = nextTextureId;
-
-  FILE* ff = fopen("texture.dat", "wb");
-  fwrite(w.buf.data(), 1, (int)w.buf.size(), ff);
-  fclose(ff);
+  *buf = w.buf;
+  return true;
 }
 
 //--------------------------------------------------------------
@@ -870,6 +996,10 @@ void ofApp::setup()
 //--------------------------------------------------------------
 void ofApp::exit()
 {
+  if (_pipeHandle != INVALID_HANDLE_VALUE)
+  {
+    CloseHandle(_pipeHandle);
+  }
 }
 
 //--------------------------------------------------------------
@@ -878,41 +1008,54 @@ void ofApp::update()
 }
 
 //--------------------------------------------------------------
-void ofApp::draw()
+void ofApp::drawSidePanel()
 {
-  _imgui.begin();
-
   ImGui::Begin("TextureGen 0.1", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
 
-  if (ImGui::Button("Reset", BUTTON_SIZE))
+  if (ImGui::CollapsingHeader("File", NULL, true, true))
   {
-    resetTexture();
-  }
-
-  if (ImGui::Button("Load", BUTTON_SIZE))
-  {
-    string filename;
-    if (showFileDialog(true, &filename))
+    if (ImGui::Button("Reset", BUTTON_SIZE))
     {
-      loadFromFile(filename);
+      resetTexture();
+    }
+
+    if (ImGui::Button("Load", BUTTON_SIZE))
+    {
+      string filename;
+      if (showFileDialog(true, &filename))
+      {
+        loadFromFile(filename);
+      }
+    }
+
+    if (ImGui::Button("Save", BUTTON_SIZE))
+    {
+      string filename;
+      if (showFileDialog(false, &filename))
+      {
+        saveToFile(filename);
+      }
+    }
+
+    if (ImGui::Button("Generate", BUTTON_SIZE))
+    {
+      vector<char> buf;
+      generateGraph(&buf);
     }
   }
 
-  if (ImGui::Button("Save", BUTTON_SIZE))
-  {
-    string filename;
-    if (showFileDialog(false, &filename))
-    {
-      saveToFile(filename);
-    }
-  }
+  //if (ImGui::CollapsingHeader("Settings", NULL, true, true))
+  //{
+  //  ImGui::PushItemWidth(BUTTON_SIZE.x - 50);
+  //  ImGui::SliderInt("# AUX", &_textureSettings.numAuxTextures, 4, 16);
+  //  ImGui::PopItemWidth();
+  //}
 
-  if (ImGui::Button("Generate", BUTTON_SIZE))
-  {
-    generateGraph();
-  }
+  ImGui::End();
 
-  for (const string& cat : {"Memory", "Generators", "Modifiers"})
+  ImGui::Begin("Commands", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+
+  for (const string& cat : { "Memory", "Generators", "Modifiers" })
   {
     if (ImGui::CollapsingHeader(cat.c_str(), NULL, true, true))
     {
@@ -920,7 +1063,9 @@ void ofApp::draw()
       {
         if (_mode == Mode::Create && _createType == t->name)
         {
-          ImGui::Text(t->name.c_str());
+          // TODO(magnus): hmm, I want something more pronunced..
+          ImGui::TextUnformatted(t->name.c_str());
+          //ImGui::ButtonEx(t->name.c_str(), BUTTON_SIZE, ImGuiButtonFlags_Disabled);
         }
         else
         {
@@ -934,72 +1079,144 @@ void ofApp::draw()
     }
   }
   ImGui::End();
+}
 
-  ImGui::Begin(
-      "Parameters", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse);
-  if (_curEditingNode)
+//--------------------------------------------------------------
+void ofApp::sendTexture()
+{
+  vector<char> buf;
+  if (generateGraph(&buf))
   {
-    for (Node::Param& p : _curEditingNode->params)
+    // try to create the pipe if it doesn't exist yet
+    if (_pipeHandle == INVALID_HANDLE_VALUE)
     {
-      const char* name = p.name.c_str();
-      switch (p.type)
-      {
-        case ParamType::Bool: ImGui::Checkbox(p.name.c_str(), &p.value.bValue); break;
-        case ParamType::Float:
-        {
-          if (p.value.fValue.flags & PARAM_FLAG_HAS_MIN_MAX)
-          {
-            ImGui::SliderFloat(
-                name, &p.value.fValue.value, p.value.fValue.minValue, p.value.fValue.maxValue);
-          }
-          else
-          {
-            ImGui::InputFloat(name, &p.value.fValue.value);
-          }
-          break;
-        }
+      const char* pipeName = "\\\\.\\pipe\\texturepipe";
+      _pipeHandle = CreateFileA(pipeName, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    }
 
-        case ParamType::Vec2:
-        {
-          if (p.value.vValue.flags & PARAM_FLAG_HAS_MIN_MAX)
-          {
-            ImGui::SliderFloat2(name,
-                p.value.vValue.value.getPtr(),
-                p.value.vValue.minValue,
-                p.value.vValue.maxValue);
-          }
-          else
-          {
-            ImGui::InputFloat2(name, p.value.vValue.value.getPtr());
-          }
-          break;
-        }
-        case ParamType::Color: ImGui::ColorEdit4(p.name.c_str(), &p.value.cValue.r); break;
-        case ParamType::Texture: break;
-        case ParamType::String:
-        {
-          const int BUF_SIZE = 64;
-          char buf[BUF_SIZE + 1];
-          size_t len = min(BUF_SIZE, (int)p.value.sValue.size());
-          memcpy(buf, p.value.sValue.c_str(), len);
-          buf[len] = 0;
-          if (ImGui::InputText(p.name.c_str(), buf, BUF_SIZE))
-            p.value.sValue.assign(buf);
-          break;
-        }
-        default: break;
+    if (_pipeHandle != INVALID_HANDLE_VALUE)
+    {
+      DWORD bytesWritten = 0;
+      if (!WriteFile(_pipeHandle, buf.data(), buf.size(), &bytesWritten, NULL))
+      {
+        _pipeHandle = INVALID_HANDLE_VALUE;
       }
     }
   }
-  else
+}
+
+//--------------------------------------------------------------
+bool ofApp::drawNodeParameters()
+{
+  ImGui::Begin(
+    "Parameters", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse);
+
+  if (!_curEditingNode)
   {
     ImGui::TextUnformatted("Nothing selected..");
+    ImGui::End();
+    return false;
   }
+
+  if (_curEditingNode->params.empty())
+  {
+    ImGui::TextUnformatted("Node has no parameters");
+    ImGui::End();
+    return false;
+  }
+
+  bool updated = false;
+
+  for (Node::Param& p : _curEditingNode->params)
+  {
+    const char* name = p.name.c_str();
+    switch (p.type)
+    {
+      case ParamType::Int:
+      {
+        if (p.value.flags & PARAM_FLAG_HAS_MIN_MAX)
+        {
+          updated |= ImGui::SliderInt(
+            name, &p.value.iValue.value, p.value.iValue.minValue, p.value.iValue.maxValue);
+        }
+        else
+        {
+          updated |= ImGui::InputInt(name, &p.value.iValue.value);
+        }
+        break;
+      }
+
+      case ParamType::Bool:
+      {
+        updated |= ImGui::Checkbox(p.name.c_str(), &p.value.bValue);
+        break;
+      }
+      case ParamType::Float:
+      {
+        if (p.value.flags & PARAM_FLAG_HAS_MIN_MAX)
+        {
+          updated |= ImGui::SliderFloat(
+            name, &p.value.fValue.value, p.value.fValue.minValue, p.value.fValue.maxValue);
+        }
+        else
+        {
+          updated |= ImGui::InputFloat(name, &p.value.fValue.value);
+        }
+        break;
+      }
+
+      case ParamType::Vec2:
+      {
+        if (p.value.flags & PARAM_FLAG_HAS_MIN_MAX)
+        {
+          updated |= ImGui::SliderFloat2(name,
+            p.value.vValue.value.getPtr(),
+            p.value.vValue.minValue,
+            p.value.vValue.maxValue);
+        }
+        else
+        {
+          updated |= ImGui::InputFloat2(name, p.value.vValue.value.getPtr());
+        }
+        break;
+      }
+      case ParamType::Color: updated |= ImGui::ColorEdit4(p.name.c_str(), &p.value.cValue.r); break;
+      case ParamType::Texture: break;
+      case ParamType::String:
+      {
+        const int BUF_SIZE = 64;
+        char buf[BUF_SIZE + 1];
+        size_t len = min(BUF_SIZE, (int)p.value.sValue.size());
+        memcpy(buf, p.value.sValue.c_str(), len);
+        buf[len] = 0;
+        if (ImGui::InputText(p.name.c_str(), buf, BUF_SIZE))
+        {
+          updated = true;
+          p.value.sValue.assign(buf);
+        }
+        break;
+      }
+      default: break;
+    }
+  }
+
   ImGui::End();
 
+  return updated;
+}
+
+//--------------------------------------------------------------
+void ofApp::draw()
+{
   ofBackgroundGradient(ofColor::white, ofColor::gray);
 
-  //_mainPanel.draw();
+  _imgui.begin();
+
+  drawSidePanel();
+  if (drawNodeParameters())
+  {
+    sendTexture();
+  }
 
   for (auto& node : _nodes)
   {
@@ -1030,8 +1247,6 @@ void ofApp::draw()
     }
     ofSetLineWidth(1);
   }
-
-  // ImGui::ShowTestWindow();
 
   _imgui.end();
 }
@@ -1065,7 +1280,7 @@ void ofApp::keyReleased(int key)
   {
     if (_mode == Mode::Dragging)
     {
-      for (auto& node : _selectedNodes)
+      for (Node* node : _selectedNodes)
       {
         node->bodyRect.setPosition(node->dragStart);
         node->headingRect.setPosition(node->dragStart);
@@ -1074,6 +1289,27 @@ void ofApp::keyReleased(int key)
     clearSelection();
     _mode = Mode::Default;
   }
+
+  if (key == OF_KEY_DEL)
+  {
+    for (Node* node : _selectedNodes)
+    {
+      auto it = find(_nodes.begin(), _nodes.end(), node);
+      _nodes.erase(it);
+
+      if (_curEditingNode == node)
+        _curEditingNode = nullptr;
+
+      for (NodeConnector* con : node->inputs)
+        deleteConnector(con);
+
+      deleteConnector(node->output);
+      delete node;
+    }
+
+    _mode = Mode::Default;
+  }
+
 }
 
 //--------------------------------------------------------------
@@ -1119,6 +1355,7 @@ void ofApp::clearSelection()
   for (auto& node : _selectedNodes)
     node->selected = false;
   _selectedNodes.clear();
+  _curEditingNode = nullptr;
 }
 
 //--------------------------------------------------------------
@@ -1185,6 +1422,21 @@ NodeConnector* ofApp::connectorAtPoint(const ofPoint& pt)
 }
 
 //--------------------------------------------------------------
+void ofApp::deleteConnector(NodeConnector* con)
+{
+  // remove the connection from each of its connections
+  for (NodeConnector* other : con->cons)
+  {
+    other->cons.erase(
+      remove_if(other->cons.begin(), other->cons.end(), [=](NodeConnector* cand) { return cand == con; }),
+      other->cons.end());
+  }
+
+  // clear the connection's cons
+  con->cons.clear();
+}
+
+//--------------------------------------------------------------
 void ofApp::mousePressed(int x, int y, int button)
 {
   ofPoint pt(x, y);
@@ -1195,15 +1447,15 @@ void ofApp::mousePressed(int x, int y, int button)
 
   if (_mode == Mode::Create)
   {
+    // Create a new node from the template, and try to send it
     const NodeTemplate* t = _nodeTemplates[_createType];
     Node* node = new Node(t, pt, _nextNodeId++);
     _curEditingNode = node;
     _nodes.push_back(node);
     resetState();
+    sendTexture();
     return;
   }
-
-  _curEditingNode = nullptr;
 
   // check if we clicked on any node connectors
   NodeConnector* con = connectorAtPoint(pt);
@@ -1212,25 +1464,15 @@ void ofApp::mousePressed(int x, int y, int button)
     // ctrl-click to remove any connections
     if (ofKeyControl())
     {
-      // remove the connection from each of its connections
-      for (NodeConnector* other : con->cons)
-      {
-        other->cons.erase(
-          remove_if(other->cons.begin(), other->cons.end(), [=](NodeConnector* cand) { return cand == con; }),
-          other->cons.end());
-      }
-
-      // clear the connection's cons
-      con->cons.clear();
-      return;
+      deleteConnector(con);
     }
     else
     {
       _startConnector = con;
       _endConnector = nullptr;
       _mode = Mode::Connecting;
-      return;
     }
+    return;
   }
 
   // if nothing was clicked, clear the selection
@@ -1280,6 +1522,8 @@ void ofApp::mouseReleased(int x, int y, int button)
 
       output->cons.push_back(input);
       input->cons.push_back(output);
+
+      sendTexture();
     }
   }
 

@@ -2,11 +2,13 @@
 
 #include "ofMain.h"
 #include <ofxImGui.h>
+#include <ofxTCPClient.h>
 
 enum class ParamType
 {
   Void,
   Bool,
+  Int,
   Float,
   Vec2,
   Color,
@@ -19,22 +21,28 @@ enum ParamFlag
   PARAM_FLAG_HAS_MIN_MAX = 0x1,
 };
 
+struct ParamInt
+{
+  int value = 0;
+  int minValue, maxValue;
+};
+
 struct ParamFloat
 {
-  uint32_t flags = 0;
   float value = 0;
   float minValue, maxValue;
 };
 
 struct ParamVec2
 {
-  uint32_t flags = 0;
   ofVec2f value = ofVec2f(0,0);
   float minValue, maxValue;
 };
 
 struct ParamValue
 {
+  uint32_t flags = 0;
+  ParamInt iValue;
   ParamFloat fValue;
   ParamVec2 vValue;
   ofColor_<float> cValue;
@@ -47,8 +55,11 @@ struct NodeTemplate
 {
   struct NodeParam
   {
+    NodeParam(const string& name, ParamType type) : name(name), type(type) {}
     string name;
     ParamType type;
+    bool hasBounds = false;
+    ParamValue bounds;
   };
 
   void calcTemplateRectangle(ofTrueTypeFont& font);
@@ -85,11 +96,16 @@ struct NodeConnector
 
 class ofApp;
 
+struct TextureSettings
+{
+  int numAuxTextures = 8;
+};
+
 struct Node
 {
   struct Param
   {
-    Param(const string& name, ParamType type) : name(name), type(type)
+    Param(const string& name, ParamType type, const ParamValue& value) : name(name), type(type), value(value)
     {
     }
     string name;
@@ -154,7 +170,14 @@ public:
   NodeConnector* connectorAtPoint(const ofPoint& pt);
   Node* nodeById(int id);
 
-  void generateGraph();
+  bool createGraph(const vector<Node*> nodes, vector<Node*>* sortedNodes);
+  bool generateGraph(vector<char>* buf);
+
+  bool drawNodeParameters();
+  void drawSidePanel();
+
+  void deleteConnector(NodeConnector* con);
+  void sendTexture();
 
   enum class Mode
   {
@@ -194,4 +217,5 @@ public:
   int _nextNodeId = 1;
 
   ofxImGui _imgui;
+  HANDLE _pipeHandle = INVALID_HANDLE_VALUE;
 };
