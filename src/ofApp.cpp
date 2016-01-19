@@ -1,9 +1,6 @@
 #include "ofApp.h"
 #include "xml_utils.hpp"
-#include <commdlg.h>
-#include <math.h>
-#include <ofxXmlSettings.h>
-#include <unordered_set>
+#include "nodr_utils.hpp"
 
 //--------------------------------------------------------------
 static const int FONT_HEIGHT = 12;
@@ -18,8 +15,11 @@ static const int MIN_NODE_WIDTH = 100;
 static const int NUM_AUX_TEXTURES = 16;
 static const ImVec2 BUTTON_SIZE(225, 20);
 
-typedef uint8_t u8;
-typedef uint16_t u16;
+static const char* FILE_DLG_XML_FILTER = "Textures (*.xml)\0*.xml\0All Files (*.*)\0*.*\0";
+static const char* FILE_DLG_XML_EXT = "xml";
+
+static const char* FILE_DLG_GEN_FILTER = "Textures (*.dat)\0*.dat\0All Files (*.*)\0*.*\0";
+static const char* FILE_DLG_GEN_EXT = "dat";
 
 static ofApp* g_App;
 
@@ -52,38 +52,6 @@ bool ofKeyControl()
   return g_modState & KeyModCtrl;
 }
 
-//--------------------------------------------------------------
-bool showFileDialog(bool openFile, string* filename)
-{
-  char szFileName[MAX_PATH];
-  ZeroMemory(szFileName, sizeof(szFileName));
-
-  OPENFILENAMEA ofn;
-  ZeroMemory(&ofn, sizeof(ofn));
-
-  ofn.lStructSize = sizeof(ofn);
-  ofn.hwndOwner = NULL;
-  ofn.lpstrFilter = "Textures (*.xml)\0*.xml\0All Files (*.*)\0*.*\0";
-  ofn.lpstrFile = szFileName;
-  ofn.nMaxFile = MAX_PATH;
-  ofn.Flags = OFN_EXPLORER | OFN_HIDEREADONLY;
-  ofn.lpstrDefExt = "xml";
-
-  if (openFile)
-  {
-    ofn.Flags |= OFN_FILEMUSTEXIST;
-    if (!GetOpenFileNameA(&ofn))
-      return false;
-  }
-  else
-  {
-    if (!GetSaveFileNameA(&ofn))
-      return false;
-  }
-
-  *filename = szFileName;
-  return true;
-}
 
 //--------------------------------------------------------------
 static void drawStringCentered(const string& str,
@@ -465,7 +433,8 @@ void ofApp::resetTexture()
     delete node;
   _nodes.clear();
 
-  _selectedNodes.clear();
+  clearSelection();
+  _mode = Mode::Default;
 }
 
 //--------------------------------------------------------------
@@ -962,12 +931,15 @@ bool ofApp::generateGraph(vector<char>* buf)
     {
       for (NodeConnector* con : node->inputs)
       {
-        Node* node = con->parent;
-        if (--nodeOutRefCount[node] == 0)
+        for (NodeConnector* input : con->cons)
         {
-          texturePool.push(nodeOutTexture[node]);
-          nodeOutRefCount.erase(node);
-          nodeOutTexture.erase(node);
+          Node* node = input->parent;
+          if (--nodeOutRefCount[node] == 0)
+          {
+            texturePool.push(nodeOutTexture[node]);
+            nodeOutRefCount.erase(node);
+            nodeOutTexture.erase(node);
+          }
         }
       }
     }
@@ -1022,7 +994,7 @@ void ofApp::drawSidePanel()
     if (ImGui::Button("Load", BUTTON_SIZE))
     {
       string filename;
-      if (showFileDialog(true, &filename))
+      if (showFileDialog(true, FILE_DLG_XML_FILTER, FILE_DLG_XML_EXT, &filename))
       {
         loadFromFile(filename);
       }
@@ -1031,7 +1003,7 @@ void ofApp::drawSidePanel()
     if (ImGui::Button("Save", BUTTON_SIZE))
     {
       string filename;
-      if (showFileDialog(false, &filename))
+      if (showFileDialog(false, FILE_DLG_XML_FILTER, FILE_DLG_XML_EXT, &filename))
       {
         saveToFile(filename);
       }
@@ -1039,8 +1011,19 @@ void ofApp::drawSidePanel()
 
     if (ImGui::Button("Generate", BUTTON_SIZE))
     {
-      vector<char> buf;
-      generateGraph(&buf);
+      string filename;
+      if (showFileDialog(false, FILE_DLG_GEN_FILTER, FILE_DLG_GEN_EXT, &filename))
+      {
+        vector<char> buf;
+        generateGraph(&buf);
+
+        FILE* f = fopen(filename.c_str(), "wb");
+        if (f)
+        {
+          fwrite(buf.data(), 1, buf.size(), f);
+          fclose(f);
+        }
+      }
     }
   }
 

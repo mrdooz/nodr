@@ -34,7 +34,7 @@
         <NodeTemplate name="RadialGradient" id="17">
             <Params>
                 <Param name="center" type="vec2" minValue="-1" maxValue="1"/>
-                <Param name="power" type="float" minValue="0.1" maxValue="100"/>
+                <Param name="power" type="float" minValue="0.1" maxValue="10"/>
             </Params>
             <Output type="texture"/>
         </NodeTemplate>
@@ -43,7 +43,7 @@
             <Params>
                 <Param name="pt0" type="vec2" minValue="-1" maxValue="1"/>
                 <Param name="pt1" type="vec2" minValue="-1" maxValue="1"/>
-                <Param name="power" type="float" minValue="0.1" maxValue="100"/>
+                <Param name="power" type="float" minValue="0.1" maxValue="10"/>
             </Params>
             <Output type="texture"/>
         </NodeTemplate>
@@ -66,8 +66,8 @@
                 <Input name="b" type="texture"/>
             </Inputs>
             <Params>
-                <Param name="factor_a" type="float"/>
-                <Param name="factor_b" type="float"/>
+                <Param name="factor_a" type="float" minValue="0" maxValue="2"/>
+                <Param name="factor_b" type="float" minValue="0" maxValue="2"/>
             </Params>
             <Output type="texture"/>
         </NodeTemplate>

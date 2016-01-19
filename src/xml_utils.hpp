@@ -1,5 +1,4 @@
 #pragma once
-#include <ofxXmlSettings.h>
 
 //--------------------------------------------------------------
 struct TagCreator

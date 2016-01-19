@@ -1,8 +1,5 @@
 #pragma once
 
-#include "ofMain.h"
-#include <ofxImGui.h>
-#include <ofxTCPClient.h>
 
 enum class ParamType
 {
