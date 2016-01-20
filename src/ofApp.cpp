@@ -877,6 +877,7 @@ bool ofApp::generateGraph(vector<char>* buf)
       w.write(cbufferSize);
 
       static unordered_map<ParamType, int> paramSize = {
+        { ParamType::Int, sizeof(int) },
         { ParamType::Float, sizeof(float) },
         { ParamType::Vec2, 2 * sizeof(float) },
         { ParamType::Color, 4 * sizeof(float) },
@@ -903,7 +904,11 @@ bool ofApp::generateGraph(vector<char>* buf)
           curOffset = 0;
         }
 
-        if (param.type == ParamType::Float)
+        if (param.type == ParamType::Int)
+        {
+          w.write(param.value.iValue.value);
+        }
+        else if (param.type == ParamType::Float)
         {
           w.write(param.value.fValue.value);
         }

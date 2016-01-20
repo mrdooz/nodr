@@ -57,6 +57,16 @@
             <Output type="texture"/>
         </NodeTemplate>
 
+        <NodeTemplate name="Noise" id="20">
+            <Params>
+                <Param name="num_octaves" type="int" minValue="1" maxValue="10"/>
+                <Param name="scale" type="float" minValue="0.1" maxValue="20"/>
+                <Param name="freq_scale" type="float" minValue="0.05" maxValue="1"/>
+                <Param name="intensity_scale" type="float" minValue="0.05" maxValue="1"/>
+            </Params>
+            <Output type="texture"/>
+        </NodeTemplate>
+
     </Category>
     <Category name="Modifiers">
 
